@@ -1,0 +1,71 @@
+# Node / package artifacts
+node_modules/
+**/node_modules/
+
+# Build outputs
+dist/
+build/
+.vite/
+out/
+public/build/
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+backend/.env
+frontend/.env
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Docker
+docker-compose.override.yml
+docker-compose.*.yml
+docker-compose.local.yml
+
+# Coverage / test artifacts
+coverage/
+*.lcov
+
+# Misc
+*.sqlite
+*.seed
+*.tgz
+*.pid
+*.env.*.bak
+``` ````
+
+Then run these commands in WSL (repo root: /mnt/d/project\ 5th\ sem/Devops/donation-campaign):
+
+````bash
+# create root .gitignore (if not already)
+cat > .gitignore <<'EOF'
+# (paste the same content as above)
+EOF
+
+# Stop tracking any node_modules directories already committed
+find . -type d -name node_modules -prune -print -exec git rm -r --cached {} \;
+
+# Untrack any committed .env files (list then remove)
+git ls-files | grep -E '\.env$' || true
+# For each tracked env file returned above run:
+# git rm --cached <path-to-env-file>
+# Example:
+# git rm --cached [.env](http://_vscodecontentref_/0) frontend/.env
+
+# Add and commit the .gitignore and changes
+git add .gitignore
+git add -u
+git commit -m "Add root .gitignore and stop tracking node_modules/.env"
