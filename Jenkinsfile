@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         DOCKERHUB_USER = 'irashasenarathna'
-        DOCKERHUB_PASSWORD = credentials('github-pat') // Docker Hub credential
+        DOCKERHUB_PASSWORD = credentials('docker-hub') // <-- Docker Hub token credential in Jenkins
     }
 
     stages {
@@ -11,7 +11,7 @@ pipeline {
             steps {
                 git branch: 'main', 
                     url: 'https://github.com/Irasha-Senarathna/devops-donation-campaign.git',
-                    credentialsId: 'github-pat'  // <-- use this
+                    credentialsId: 'github-pat'  // <-- GitHub PAT credential
             }
         }
 
