@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import cors from 'cors';
 import authRoutes from './src/routes/auth.js';
+import itemRoutes from './src/routes/items.js';
 
 dotenv.config();
 
@@ -51,6 +52,7 @@ app.get('/api/test/db', async (req, res) => {
 });
 
 app.use('/api/auth', authRoutes);
+app.use('/api/items', itemRoutes);
 
 const PORT = process.env.PORT || 5000;
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/donation_db';

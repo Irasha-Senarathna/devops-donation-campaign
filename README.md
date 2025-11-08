@@ -1,5 +1,9 @@
 # Donation Campaign App
 
+Modern full-stack donation management platform with user authentication and personal item tracking.
+
+Now includes a full CRUD interface for user-specific Items (e.g. pledges, resources, donation entries) and an About page describing the platform mission.
+
 Basic full-stack scaffold with authentication (JWT) using:
 - Backend: Node.js + Express + MongoDB (Mongoose)
 - Frontend: React + React Router + Vite build served by Nginx container
@@ -13,13 +17,14 @@ donation-campaign/
   backend/
     server.js
     src/
-      models/User.js
-      routes/auth.js
-      controllers/authController.js
+      models/{User.js,Item.js}
+      routes/{auth.js,items.js}
+      controllers/{authController.js,itemController.js}
       middleware/authMiddleware.js
       utils/jwt.js
   frontend/
-    src/pages/{Login,Signup,Dashboard}.jsx
+    src/pages/{Login,Signup,Dashboard,About}.jsx
+    src/services/api.js (fetch helper + ItemsAPI/AuthAPI)
 ```
 
 ## Environment Variables
@@ -56,11 +61,42 @@ Endpoints:
 
 Passwords are hashed with bcrypt (salt rounds=10). JWT expiry is 7 days.
 
+## Item CRUD API
+Authenticated endpoints (Authorization: Bearer <token>):
+
+- `GET /api/items` — List items for current user (sorted newest first)
+- `POST /api/items` — Create item `{ title, description?, amount }` (amount >= 0)
+- `GET /api/items/:id` — Fetch single item owned by user
+- `PUT /api/items/:id` — Update one or more fields `{ title?, description?, amount? }`
+- `DELETE /api/items/:id` — Remove item
+
+Item Schema:
+```js
+{
+  title: String (required),
+  description: String,
+  amount: Number (>=0),
+  createdBy: ObjectId<User>,
+  createdAt, updatedAt
+}
+```
+
+## Dashboard UI (Items)
+The Dashboard now shows:
+- Profile summary cards
+- Item create/edit form (inline, switches to edit mode when selecting an item)
+- Responsive grid list of items with amount highlighting and edit/delete actions
+ - Page-level background image via `public/assets/dashboard-bg.jpg` with subtle overlay
+
+## About Page
+Accessible via navigation bar. Communicates mission, values, and promise. Built with responsive modern layout and gradient typography. Background image uses `public/assets/about-bg.jpg` with a soft dark overlay for readability.
+
 ## Testing Signup/Login
 1. Navigate to http://localhost:3000
 2. Click Signup, create a user
 3. Should redirect to Dashboard and show user JSON
 4. Logout -> Login with same credentials -> Dashboard
+5. Add items in the Dashboard form. Edit and delete to verify CRUD operations.
 
 ## Development Notes
 - Frontend dev mode (outside Docker):
@@ -80,6 +116,29 @@ Passwords are hashed with bcrypt (salt rounds=10). JWT expiry is 7 days.
   ```
   Ensure a Mongo instance is available locally or use the one from Docker compose (adjust `MONGO_URI`).
 
+### Quick Local Smoke Test (after cloning)
+```bash
+# Backend
+cd backend
+npm install
+npm run dev &
+
+# Frontend (in another shell)
+cd frontend
+npm install
+npm run dev
+```
+Visit http://localhost:3000, register, then open Dashboard to add items.
+
+## Assets (Background Images)
+Place images in `frontend/public/assets` with these names:
+
+- `dashboard-bg.jpg` — Dashboard background
+- `login-bg.jpg` — Login and Signup background
+- `about-bg.jpg` — About page background
+
+These are served statically by Vite/Nginx at `/assets/*.jpg`. Use large, optimized images; content should leave room for text for maximum readability.
+
 ## Security Considerations (for future improvements)
 - Move JWT to HTTP-only cookie to mitigate XSS
 - Add input validation (e.g. zod / joi)
@@ -87,11 +146,14 @@ Passwords are hashed with bcrypt (salt rounds=10). JWT expiry is 7 days.
 - Password reset & email verification flows
 
 ## Next Steps (Optional Enhancements)
-- Donation campaign models (Campaign, Donation)
+-- Donation campaign models (Campaign, Donation) linking Items to Campaigns
 - Role-based access (admin, donor)
 - File/image uploads (campaign banners) via S3 / Cloudinary
 - Pagination & search
 - Docker multi-stage for backend (builder + prod) if adding TS/build step
+ - Data export and analytics (CSV/Excel)
+ - Optimistic UI updates + skeleton loaders
+ - Replace inline styles with Tailwind or CSS Modules
 
 ---
 This scaffold provides a baseline to extend the platform. Let me know if you want to proceed with campaign features or security hardening next.

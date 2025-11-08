@@ -1,8 +1,32 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 export default function Login() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [error, setError] = useState(null);
+
+  // Page background image with dark overlay for contrast
+  useEffect(() => {
+    const prev = {
+      background: document.body.style.background,
+      backgroundSize: document.body.style.backgroundSize,
+      backgroundPosition: document.body.style.backgroundPosition,
+      backgroundAttachment: document.body.style.backgroundAttachment,
+    };
+
+    // ✅ Local image with 75% dark overlay
+    document.body.style.background = `
+      linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0.75)),
+      url('/src/assests/world-vision.jpg') center / cover no-repeat fixed
+    `;
+    document.body.style.backgroundAttachment = 'fixed';
+
+    return () => {
+      document.body.style.background = prev.background || '#f8fafc';
+      document.body.style.backgroundSize = prev.backgroundSize || '';
+      document.body.style.backgroundPosition = prev.backgroundPosition || '';
+      document.body.style.backgroundAttachment = prev.backgroundAttachment || '';
+    };
+  }, []);
 
   const onChange = e => setForm({ ...form, [e.target.name]: e.target.value });
 
@@ -10,7 +34,7 @@ export default function Login() {
     e.preventDefault();
     setError(null);
     try {
-      const res = await fetch('/api/auth/login', {
+      const res = await fetch('http://localhost:5000/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)
@@ -29,14 +53,16 @@ export default function Login() {
       maxWidth: 550, 
       margin: '5rem auto',
       padding: '30px 40px',
-      borderRadius: '15px',
-      boxShadow: '0 10px 40px rgba(0,0,0,0.1)',
-      backgroundColor: '#ffffff'
+      borderRadius: '16px',
+      boxShadow: '0 20px 60px rgba(0,0,0,0.25)',
+      background: 'rgba(255,255,255,0.85)',
+      backdropFilter: 'blur(6px)',
+      border: '1px solid rgba(255,255,255,0.35)'
     }}>
       <h3 style={{ 
         fontSize: '28px', 
         fontWeight: 700, 
-        color: '#2c3e50',
+        color: '#1f2937',
         marginBottom: '25px',
         textAlign: 'center'
       }}>Login to Your Account</h3>

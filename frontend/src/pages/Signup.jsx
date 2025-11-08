@@ -1,8 +1,31 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 export default function Signup() {
   const [form, setForm] = useState({ name: '', email: '', password: '' });
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const prev = {
+      background: document.body.style.background,
+      backgroundSize: document.body.style.backgroundSize,
+      backgroundPosition: document.body.style.backgroundPosition,
+      backgroundAttachment: document.body.style.backgroundAttachment,
+    };
+
+    // 🌄 75% dark overlay with your background image
+    document.body.style.background = `
+      linear-gradient(rgba(0,0,0,0.75), rgba(0,0,0,0.75)),
+      url('/src/assests/world-vision.jpg') center / cover no-repeat fixed
+    `;
+    document.body.style.backgroundAttachment = 'fixed';
+
+    return () => {
+      document.body.style.background = prev.background || '#f8fafc';
+      document.body.style.backgroundSize = prev.backgroundSize || '';
+      document.body.style.backgroundPosition = prev.backgroundPosition || '';
+      document.body.style.backgroundAttachment = prev.backgroundAttachment || '';
+    };
+  }, []);
 
   const onChange = e => setForm({ ...form, [e.target.name]: e.target.value });
 
@@ -29,9 +52,11 @@ export default function Signup() {
       maxWidth: 550, 
       margin: '5rem auto',
       padding: '30px 40px',
-      borderRadius: '15px',
-      boxShadow: '0 10px 40px rgba(0,0,0,0.1)',
-      backgroundColor: '#ffffff'
+      borderRadius: '18px',
+      boxShadow: '0 25px 70px -10px rgba(0,0,0,0.45)',
+      background: 'rgba(255,255,255,0.85)',
+      backdropFilter: 'blur(6px)',
+      border: '1px solid rgba(255,255,255,0.35)'
     }}>
       <h3 style={{ 
         fontSize: '28px', 
@@ -40,6 +65,7 @@ export default function Signup() {
         marginBottom: '25px',
         textAlign: 'center'
       }}>Create Your Account</h3>
+
       <form onSubmit={submit}>
         <input 
           name="name" 
@@ -74,6 +100,7 @@ export default function Signup() {
             e.target.style.transform = 'translateY(0)';
           }}
         />
+
         <input 
           name="email" 
           type="email" 
@@ -108,6 +135,7 @@ export default function Signup() {
             e.target.style.transform = 'translateY(0)';
           }}
         />
+
         <input 
           name="password" 
           type="password" 
@@ -143,9 +171,9 @@ export default function Signup() {
             e.target.style.transform = 'translateY(0)';
           }}
         />
+
         <button 
           type="submit"
-          onClick={submit}
           style={{
             padding: '18px 32px',
             background: 'linear-gradient(145deg, #8e44ad, #9b59b6)',
@@ -176,6 +204,7 @@ export default function Signup() {
           Create Account
         </button>
       </form>
+
       {error && <p style={{ 
         color: '#e74c3c', 
         textAlign: 'center', 
@@ -184,14 +213,15 @@ export default function Signup() {
         borderRadius: '5px',
         backgroundColor: '#fef5f5'
       }}>{error}</p>}
-      
+
       <p style={{ 
         marginTop: '25px', 
         textAlign: 'center',
         color: '#7f8c8d',
         fontSize: '14px' 
       }}>
-        Already have an account? <a 
+        Already have an account?{' '}
+        <a 
           href="/login" 
           style={{ 
             color: '#8e44ad', 

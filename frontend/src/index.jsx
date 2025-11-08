@@ -4,6 +4,8 @@ import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom';
 import Signup from './pages/Signup.jsx';
 import Login from './pages/Login.jsx';
 import Dashboard from './pages/Dashboard.jsx';
+import About from './pages/About.jsx';
+import homeBg from './assests/2.jpg';
 
 // Modern CSS styles
 const styles = `
@@ -100,6 +102,14 @@ const styles = `
     color: #64748b;
     margin-bottom: 2rem;
   }
+
+  .welcome-image {
+    width: 100%;
+    max-width: 500px;
+    border-radius: 0.75rem;
+    margin-top: 1.5rem;
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
+  }
   
   .features-grid {
     display: grid;
@@ -153,6 +163,7 @@ function App() {
           <Link to="/" className="nav-link">Home</Link>
           {!token && <Link to="/signup" className="nav-link">Signup</Link>}
           {!token && <Link to="/login" className="nav-link">Login</Link>}
+          <Link to="/about" className="nav-link">About</Link>
           {token && <Link to="/dashboard" className="nav-link">Dashboard</Link>}
           {token && (
             <button 
@@ -172,32 +183,42 @@ function App() {
             <Route 
               path="/" 
               element={
-                <div className="welcome-container">
-                  <h1 className="welcome-title">Welcome to Donation App</h1>
-                  <p className="welcome-subtitle">
-                    Make a difference with your generous contributions. Together we can create positive change.
-                  </p>
-                  
-                  <div className="features-grid">
-                    <div className="feature-card">
-                      <div className="feature-icon">❤️</div>
-                      <h3>Easy Donations</h3>
-                      <p>Quick and secure donation process</p>
-                    </div>
-                    <div className="feature-card">
-                      <div className="feature-icon">📊</div>
-                      <h3>Track Impact</h3>
-                      <p>See how your contributions help</p>
-                    </div>
-                    <div className="feature-card">
-                      <div className="feature-icon">🔒</div>
-                      <h3>Secure</h3>
-                      <p>Your data and payments are protected</p>
-                    </div>
-                    <div className="feature-card">
-                      <div className="feature-icon">🌍</div>
-                      <h3>Global Reach</h3>
-                      <p>Support causes around the world</p>
+                <div style={{
+                  width: '100%',
+                  minHeight: '100vh',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  padding: '2rem',
+                  background: `linear-gradient(rgba(1,1,1,0), rgba(1,1,1,0)), url(${homeBg}) center / cover no-repeat fixed`
+                }}>
+                  <div className="welcome-container" style={{ background: 'rgba(255,255,255,0.9)', backdropFilter: 'blur(6px)', marginTop: 0 }}>
+                    <h1 className="welcome-title">Welcome to Donation App</h1>
+                    <p className="welcome-subtitle">
+                      Make a difference with your generous contributions. Together we can create positive change.
+                    </p>
+
+                    <div className="features-grid">
+                      <div className="feature-card">
+                        <div className="feature-icon">❤️</div>
+                        <h3>Easy Donations</h3>
+                        <p>Quick and secure donation process</p>
+                      </div>
+                      <div className="feature-card">
+                        <div className="feature-icon">📊</div>
+                        <h3>Track Impact</h3>
+                        <p>See how your contributions help</p>
+                      </div>
+                      <div className="feature-card">
+                        <div className="feature-icon">🔒</div>
+                        <h3>Secure</h3>
+                        <p>Your data and payments are protected</p>
+                      </div>
+                      <div className="feature-card">
+                        <div className="feature-icon">🌍</div>
+                        <h3>Global Reach</h3>
+                        <p>Support causes around the world</p>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -205,6 +226,7 @@ function App() {
             />
             <Route path="/signup" element={<Signup />} />
             <Route path="/login" element={<Login />} />
+            <Route path="/about" element={<About />} />
             <Route 
               path="/dashboard" 
               element={token ? <Dashboard /> : <Navigate to="/login" replace />} 
