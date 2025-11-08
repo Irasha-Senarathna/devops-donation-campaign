@@ -3,7 +3,7 @@ pipeline {
 
     environment {
         DOCKERHUB_USER = 'irashasenarathna'
-        DOCKERHUB_PASSWORD = credentials('docker-hub') // <-- Docker Hub PAT
+        DOCKERHUB_PASSWORD = credentials('docker-hub-token') // <-- use the ID you just created
     }
 
     stages {
@@ -11,7 +11,7 @@ pipeline {
             steps {
                 git branch: 'main', 
                     url: 'https://github.com/Irasha-Senarathna/devops-donation-campaign.git',
-                    credentialsId: 'github-pat'
+                    credentialsId: 'github-pat'  // GitHub PAT credential
             }
         }
 
