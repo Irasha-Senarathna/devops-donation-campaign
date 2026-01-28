@@ -1,8 +1,6 @@
 # ===========================================
 # GITHUB ACTIONS: BUILD & PUSH DOCKER IMAGES
 # ===========================================
-# This workflow automatically builds Docker images
-# and pushes them to Docker Hub when you push code
 
 name: Build and Deploy Donation Campaign
 
@@ -11,9 +9,6 @@ on:
     branches: [main, master]
   pull_request:
     branches: [main, master]
-
-env:
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
 
 jobs:
   # ===========================================
@@ -35,23 +30,21 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      # Build and push Backend
       - name: Build and push Backend
         uses: docker/build-push-action@v5
         with:
           context: ./backend
           file: ./backend/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/donation-backend:latest
+          tags: irashasenarathna/donation-backend:latest
 
-      # Build and push Frontend
       - name: Build and push Frontend
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
           file: ./frontend/Dockerfile
           push: true
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/donation-frontend:latest
+          tags: irashasenarathna/donation-frontend:latest
 
   # ===========================================
   # JOB 2: Deploy to EC2
@@ -71,19 +64,15 @@ jobs:
           port: 22
           command_timeout: 10m
           script: |
-            # Create app directory
             mkdir -p /home/ubuntu/donation-campaign
             cd /home/ubuntu/donation-campaign
             
-            # Stop old containers
             docker-compose down || true
             docker container prune -f || true
             
-            # Pull latest images
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/donation-backend:latest
-            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/donation-frontend:latest
+            docker pull irashasenarathna/donation-backend:latest
+            docker pull irashasenarathna/donation-frontend:latest
             
-            # Create docker-compose.yml
             cat > docker-compose.yml << 'EOF'
             version: '3.9'
             
@@ -98,7 +87,7 @@ jobs:
                   - app-network
             
               backend:
-                image: ${{ secrets.DOCKERHUB_USERNAME }}/donation-backend:latest
+                image: irashasenarathna/donation-backend:latest
                 container_name: donation-backend
                 restart: unless-stopped
                 environment:
@@ -114,7 +103,7 @@ jobs:
                   - app-network
             
               frontend:
-                image: ${{ secrets.DOCKERHUB_USERNAME }}/donation-frontend:latest
+                image: irashasenarathna/donation-frontend:latest
                 container_name: donation-frontend
                 restart: unless-stopped
                 ports:
@@ -132,14 +121,9 @@ jobs:
                 driver: bridge
             EOF
             
-            # Replace placeholder with actual username
-            sed -i 's/\${{ secrets.DOCKERHUB_USERNAME }}/${{ secrets.DOCKERHUB_USERNAME }}/g' docker-compose.yml
-            
-            # Start containers
             docker-compose up -d
             
-            # Wait and check
-            sleep 10
+            sleep 15
             docker ps
             
             echo "✅ Deployment complete!"
