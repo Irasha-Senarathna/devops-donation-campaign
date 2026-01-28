@@ -39,8 +39,6 @@ services:
       - "3000:80"             # Map container port 80 to host port 3000
     depends_on:
       - backend
-    environment:
-      - VITE_API_URL=http://backend:5000   # Use container name for internal networking
     networks:
       - app-network
     restart: unless-stopped

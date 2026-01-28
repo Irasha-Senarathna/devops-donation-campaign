@@ -93,7 +93,7 @@ jobs:
                 environment:
                   - NODE_ENV=production
                   - PORT=5000
-                  - MONGODB_URI=mongodb://mongo:27017/donation_db
+                  - MONGO_URI=mongodb://mongo:27017/donation_db
                   - JWT_SECRET=your-super-secret-jwt-key-change-this
                 ports:
                   - "5000:5000"
