@@ -1,275 +1,527 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { ItemsAPI, AuthAPI } from '../services/api';
+import React, { useEffect, useState } from 'react';
+import { CampaignAPI, AuthAPI, getUserIdFromToken } from '../services/api.js';
+
+const colors = [
+  '#f97316', '#fb923c', '#fdba74', '#ff8c42', '#ff6b35', '#f59e0b', '#ea580c'
+];
 
 export default function Dashboard() {
-  // Page background image with subtle dark overlay
-  useEffect(() => {
-    const prev = {
-      background: document.body.style.background,
-      backgroundSize: document.body.style.backgroundSize,
-      backgroundPosition: document.body.style.backgroundPosition,
-      backgroundAttachment: document.body.style.backgroundAttachment,
-    };
-
-    // 75% transparent dark overlay over the background image
-    document.body.style.background = `
-      linear-gradient(rgba(15, 23, 42, 0.75), rgba(15, 23, 42, 0.75)),
-      url('/src/assests/1.jpg') center / cover no-repeat fixed
-    `;
-    document.body.style.backgroundAttachment = 'fixed';
-
-    return () => {
-      document.body.style.background = prev.background || '#f8fafc';
-      document.body.style.backgroundSize = prev.backgroundSize || '';
-      document.body.style.backgroundPosition = prev.backgroundPosition || '';
-      document.body.style.backgroundAttachment = prev.backgroundAttachment || '';
-    };
-  }, []);
-
+  const [campaigns, setCampaigns] = useState([]);
   const [user, setUser] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [dbStatus, setDbStatus] = useState(null);
-  const [items, setItems] = useState([]);
-  const [itemsLoading, setItemsLoading] = useState(false);
-  const [form, setForm] = useState({ title: '', description: '', amount: '' });
-  const [saving, setSaving] = useState(false);
-  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState({ title: '', description: '', targetAmount: 0 });
 
-  const fetchMe = useCallback(() => {
-    const token = localStorage.getItem('token');
-    if (!token) {
-      setError('Not logged in. Please login again.');
-      setUser(null);
-      return;
-    }
-    setLoading(true);
-    AuthAPI.me()
-      .then((data) => {
-        setUser(data.user);
-        setError(null);
-        // Also check DB status and load items
-        checkDbStatus();
-        loadItems();
-      })
-      .catch(err => {
-        console.error('ME endpoint error', err);
-        setError(err.message);
-        setUser(null);
-      })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const checkDbStatus = useCallback(() => {
-    fetch('/api/test/db')
-      .then(res => res.json())
-      .then(data => {
-        setDbStatus(data);
-      })
-      .catch(err => {
-        console.error('DB status check failed', err);
-      });
-  }, []);
-
-  const loadItems = useCallback(() => {
-    setItemsLoading(true);
-    ItemsAPI.list()
-      .then((data) => setItems(data))
-      .catch((err) => {
-        console.error('Load items failed', err);
-        setError(err.message);
-      })
-      .finally(() => setItemsLoading(false));
-  }, []);
+  const userId = getUserIdFromToken();
 
   useEffect(() => {
-    fetchMe();
-  }, [fetchMe]);
+    fetchUser();
+    fetchCampaigns();
+  }, []);
 
-  const resetForm = () => setForm({ title: '', description: '', amount: '' });
+  const fetchUser = async () => {
+    try {
+      const data = await AuthAPI.me();
+      setUser(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const fetchCampaigns = async () => {
+    try {
+      const data = await CampaignAPI.list();
+      setCampaigns(data);
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!form.title || form.amount === '') return setError('Please fill title and amount');
-    setSaving(true);
     try {
-      const payload = { title: form.title, description: form.description, amount: Number(form.amount) };
-      await ItemsAPI.create(payload);
-      resetForm();
-      loadItems();
+      const newCampaign = await CampaignAPI.create(form);
+      setCampaigns([...campaigns, newCampaign]);
+      setForm({ title: '', description: '', targetAmount: 0 });
     } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const startEdit = (item) => {
-    setEditingId(item._id);
-    setForm({ title: item.title, description: item.description || '', amount: item.amount.toString() });
-  };
-
-  const cancelEdit = () => {
-    setEditingId(null);
-    resetForm();
-  };
-
-  const handleUpdate = async (e) => {
-    e.preventDefault();
-    setSaving(true);
-    try {
-      const payload = { title: form.title, description: form.description, amount: Number(form.amount) };
-      await ItemsAPI.update(editingId, payload);
-      cancelEdit();
-      loadItems();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSaving(false);
+      alert(err.message);
     }
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this item?')) return;
+    if (!window.confirm('Are you sure you want to delete this campaign?')) return;
     try {
-      await ItemsAPI.remove(id);
-      setItems((prev) => prev.filter((i) => i._id !== id));
+      await CampaignAPI.remove(id);
+      setCampaigns(campaigns.filter(c => c._id !== id));
     } catch (err) {
-      setError(err.message);
+      alert(err.message);
+    }
+  };
+
+  const handleDonate = async (id) => {
+    const amount = Number(prompt('Enter donation amount'));
+    if (!amount || amount <= 0) return;
+    try {
+      const updated = await CampaignAPI.donate(id, amount);
+      setCampaigns(campaigns.map(c => c._id === id ? updated : c));
+    } catch (err) {
+      alert(err.message);
     }
   };
 
   return (
-    <div style={{ maxWidth: 1100, margin: '2rem auto', padding: '1.5rem', background: 'rgba(255,255,255,0.9)', borderRadius: '18px', boxShadow: '0 30px 80px rgba(0,0,0,0.35)', backdropFilter: 'blur(6px)', border: '1px solid rgba(255,255,255,0.4)' }}>
-      <h2 style={{ borderBottom: '1px solid #eee', paddingBottom: '10px', color: '#2c3e50' }}>Welcome to Your Dashboard</h2>
-      
-      <div style={{ marginBottom: '1.5rem' }}>
-        <button 
-          onClick={fetchMe} 
-          disabled={loading}
-          style={{ 
-            padding: '14px 28px',
-            background: loading ? '#bdc3c7' : 'linear-gradient(145deg, #27ae60, #2ecc71)',
-            color: 'white',
-            border: 'none',
-            borderRadius: '50px',
-            cursor: loading ? 'not-allowed' : 'pointer',
-            fontSize: '16px',
+    <div style={{
+      minHeight: '100vh',
+      background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
+      position: 'relative',
+      overflow: 'hidden'
+    }}>
+      {/* Animated Background Elements */}
+      <div style={{
+        position: 'absolute',
+        top: '-10%',
+        right: '-5%',
+        width: '500px',
+        height: '500px',
+        background: 'radial-gradient(circle, rgba(249, 115, 22, 0.15) 0%, transparent 70%)',
+        borderRadius: '50%',
+        filter: 'blur(60px)',
+        animation: 'float 20s ease-in-out infinite'
+      }} />
+      <div style={{
+        position: 'absolute',
+        bottom: '-10%',
+        left: '-5%',
+        width: '600px',
+        height: '600px',
+        background: 'radial-gradient(circle, rgba(251, 146, 60, 0.1) 0%, transparent 70%)',
+        borderRadius: '50%',
+        filter: 'blur(80px)',
+        animation: 'float 25s ease-in-out infinite reverse'
+      }} />
+
+      <style>{`
+        @keyframes float {
+          0%, 100% { transform: translate(0, 0) scale(1); }
+          50% { transform: translate(30px, -30px) scale(1.1); }
+        }
+        @keyframes slideIn {
+          from { opacity: 0; transform: translateY(20px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes pulse {
+          0%, 100% { opacity: 1; }
+          50% { opacity: 0.6; }
+        }
+        @keyframes shimmer {
+          0% { background-position: -200% 0; }
+          100% { background-position: 200% 0; }
+        }
+      `}</style>
+
+      <div style={{ position: 'relative', zIndex: 1, padding: '3rem 2rem', maxWidth: '1400px', margin: '0 auto' }}>
+        {/* Header */}
+        <div style={{
+          background: 'rgba(30, 41, 59, 0.6)',
+          backdropFilter: 'blur(20px)',
+          borderRadius: '24px',
+          padding: '2rem 2.5rem',
+          marginBottom: '2.5rem',
+          border: '1px solid rgba(249, 115, 22, 0.2)',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.5)',
+          animation: 'slideIn 0.6s ease-out'
+        }}>
+          <h1 style={{
+            fontSize: '3rem',
+            fontWeight: '800',
+            background: 'linear-gradient(135deg, #f97316 0%, #fb923c 50%, #fdba74 100%)',
+            WebkitBackgroundClip: 'text',
+            WebkitTextFillColor: 'transparent',
+            marginBottom: '0.5rem',
+            letterSpacing: '-0.02em'
+          }}>
+            Welcome back, {user?.name || 'Guest'}
+          </h1>
+          <p style={{ color: '#94a3b8', fontSize: '1.1rem', fontWeight: '300' }}>
+            Manage your campaigns and make a difference
+          </p>
+        </div>
+
+        {/* Create Campaign Form */}
+        <div style={{
+          background: 'rgba(30, 41, 59, 0.5)',
+          backdropFilter: 'blur(20px)',
+          borderRadius: '24px',
+          padding: '2rem',
+          marginBottom: '2.5rem',
+          border: '1px solid rgba(249, 115, 22, 0.15)',
+          boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4)',
+          animation: 'slideIn 0.7s ease-out'
+        }}>
+          <h2 style={{
+            color: '#f97316',
+            fontSize: '1.5rem',
             fontWeight: '700',
-            letterSpacing: '0.5px',
-            textTransform: 'uppercase',
-            boxShadow: loading ? 'none' : '0 8px 25px rgba(46, 204, 113, 0.4)',
-            transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
-            position: 'relative',
-            overflow: 'hidden'
-          }}
-          onMouseEnter={(e) => {
-            if (!loading) {
-              e.target.style.transform = 'translateY(-3px)';
-              e.target.style.boxShadow = '0 12px 35px rgba(46, 204, 113, 0.5)';
-            }
-          }}
-          onMouseLeave={(e) => {
-            if (!loading) {
-              e.target.style.transform = 'translateY(0)';
-              e.target.style.boxShadow = '0 8px 25px rgba(46, 204, 113, 0.4)';
-            }
-          }}
-        >
-          {loading ? 'Loading...' : 'Refresh Profile'}
-        </button>
-      </div>
-
-      {loading && <div style={{ padding: '1rem', background: '#f8f9fa', borderRadius: '4px' }}>Loading your profile...</div>}
-      {error && <div style={{ padding: '1rem', background: '#ffebee', color: '#c62828', borderRadius: '4px' }}>{error}</div>}
-      
-      {user && (
-        <div style={{ marginBottom: '2rem' }}>
-          <h3 style={{ color: '#3498db', borderBottom: '1px solid #eee', paddingBottom: '5px' }}>Your Profile</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '15px', alignItems: 'center', marginTop: '15px' }}>
-            <div style={{ background:'#f8fafc', padding:'12px 16px', borderRadius:8 }}>
-              <div style={{ fontSize:12, color:'#64748b' }}>Name</div>
-              <div style={{ fontWeight:600 }}>{user.name}</div>
-            </div>
-            <div style={{ background:'#f8fafc', padding:'12px 16px', borderRadius:8 }}>
-              <div style={{ fontSize:12, color:'#64748b' }}>Email</div>
-              <div style={{ fontWeight:600 }}>{user.email}</div>
-            </div>
-            <div style={{ background:'#f8fafc', padding:'12px 16px', borderRadius:8 }}>
-              <div style={{ fontSize:12, color:'#64748b' }}>Member Since</div>
-              <div style={{ fontWeight:600 }}>{new Date(user.createdAt).toLocaleDateString()}</div>
-            </div>
-            <div style={{ background:'#f8fafc', padding:'12px 16px', borderRadius:8 }}>
-              <div style={{ fontSize:12, color:'#64748b' }}>User ID</div>
-              <div style={{ fontWeight:600 }}>{user.id}</div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Items CRUD Section */}
-      <section>
-        <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom: '1rem' }}>
-          <h3 style={{ color: '#16a34a' }}>Your Items</h3>
-          <button onClick={loadItems} disabled={itemsLoading}
-            style={{ padding:'10px 16px', background: itemsLoading ? '#94a3b8' : 'linear-gradient(135deg, #22c55e, #16a34a)', color:'#fff', border:'none', borderRadius:8, cursor: itemsLoading? 'not-allowed' : 'pointer' }}>
-            {itemsLoading ? 'Refreshing...' : 'Refresh List'}
-          </button>
-        </div>
-
-        {/* Create / Edit form */}
-        <form onSubmit={editingId ? handleUpdate : handleCreate}
-          style={{ display:'grid', gridTemplateColumns:'2fr 3fr 1fr auto', gap:12, background:'#f1f5f9', padding:16, borderRadius:12, marginBottom:16 }}>
-          <input placeholder="Title" value={form.title} onChange={(e)=>setForm(f=>({...f,title:e.target.value}))}
-            style={{ padding:'10px 12px', border:'1px solid #e2e8f0', borderRadius:8 }} />
-          <input placeholder="Description" value={form.description} onChange={(e)=>setForm(f=>({...f,description:e.target.value}))}
-            style={{ padding:'10px 12px', border:'1px solid #e2e8f0', borderRadius:8 }} />
-          <input type="number" step="0.01" min="0" placeholder="Amount" value={form.amount}
-            onChange={(e)=>setForm(f=>({...f,amount:e.target.value}))}
-            style={{ padding:'10px 12px', border:'1px solid #e2e8f0', borderRadius:8 }} />
-          <div style={{ display:'flex', gap:8 }}>
-            <button type="submit" disabled={saving}
-              style={{ padding:'10px 16px', background: saving ? '#94a3b8' : 'linear-gradient(135deg, #6366f1, #4f46e5)', color:'#fff', border:'none', borderRadius:8, cursor: saving? 'not-allowed' : 'pointer', fontWeight:600 }}>
-              {editingId ? (saving ? 'Saving...' : 'Save') : (saving ? 'Adding...' : 'Add')}
+            marginBottom: '1.5rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '0.5rem'
+          }}>
+            <span style={{
+              width: '8px',
+              height: '8px',
+              background: '#f97316',
+              borderRadius: '50%',
+              animation: 'pulse 2s ease-in-out infinite'
+            }} />
+            Create New Campaign
+          </h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+            <input
+              placeholder="Campaign Title"
+              value={form.title}
+              onChange={e => setForm({ ...form, title: e.target.value })}
+              required
+              style={{
+                background: 'rgba(15, 23, 42, 0.7)',
+                border: '1px solid rgba(249, 115, 22, 0.3)',
+                borderRadius: '12px',
+                padding: '1rem 1.25rem',
+                color: '#e2e8f0',
+                fontSize: '1rem',
+                outline: 'none',
+                transition: 'all 0.3s ease',
+                fontWeight: '400'
+              }}
+              onFocus={(e) => {
+                e.target.style.border = '1px solid rgba(249, 115, 22, 0.6)';
+                e.target.style.boxShadow = '0 0 0 4px rgba(249, 115, 22, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.border = '1px solid rgba(249, 115, 22, 0.3)';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+            <input
+              placeholder="Description"
+              value={form.description}
+              onChange={e => setForm({ ...form, description: e.target.value })}
+              style={{
+                background: 'rgba(15, 23, 42, 0.7)',
+                border: '1px solid rgba(249, 115, 22, 0.3)',
+                borderRadius: '12px',
+                padding: '1rem 1.25rem',
+                color: '#e2e8f0',
+                fontSize: '1rem',
+                outline: 'none',
+                transition: 'all 0.3s ease',
+                fontWeight: '400'
+              }}
+              onFocus={(e) => {
+                e.target.style.border = '1px solid rgba(249, 115, 22, 0.6)';
+                e.target.style.boxShadow = '0 0 0 4px rgba(249, 115, 22, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.border = '1px solid rgba(249, 115, 22, 0.3)';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+            <input
+              placeholder="Target Amount ($)"
+              type="number"
+              value={form.targetAmount}
+              onChange={e => setForm({ ...form, targetAmount: Number(e.target.value) })}
+              required
+              style={{
+                background: 'rgba(15, 23, 42, 0.7)',
+                border: '1px solid rgba(249, 115, 22, 0.3)',
+                borderRadius: '12px',
+                padding: '1rem 1.25rem',
+                color: '#e2e8f0',
+                fontSize: '1rem',
+                outline: 'none',
+                transition: 'all 0.3s ease',
+                fontWeight: '400'
+              }}
+              onFocus={(e) => {
+                e.target.style.border = '1px solid rgba(249, 115, 22, 0.6)';
+                e.target.style.boxShadow = '0 0 0 4px rgba(249, 115, 22, 0.1)';
+              }}
+              onBlur={(e) => {
+                e.target.style.border = '1px solid rgba(249, 115, 22, 0.3)';
+                e.target.style.boxShadow = 'none';
+              }}
+            />
+            <button
+              onClick={handleCreate}
+              style={{
+                background: 'linear-gradient(135deg, #f97316 0%, #ea580c 100%)',
+                border: 'none',
+                borderRadius: '12px',
+                padding: '1rem 2rem',
+                color: 'white',
+                fontSize: '1.05rem',
+                fontWeight: '600',
+                cursor: 'pointer',
+                transition: 'all 0.3s ease',
+                boxShadow: '0 4px 20px rgba(249, 115, 22, 0.4)',
+                position: 'relative',
+                overflow: 'hidden'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.transform = 'translateY(-2px)';
+                e.target.style.boxShadow = '0 8px 30px rgba(249, 115, 22, 0.5)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.transform = 'translateY(0)';
+                e.target.style.boxShadow = '0 4px 20px rgba(249, 115, 22, 0.4)';
+              }}
+            >
+              Create Campaign
             </button>
-            {editingId && (
-              <button type="button" onClick={cancelEdit}
-                style={{ padding:'10px 16px', background:'#e2e8f0', color:'#334155', border:'none', borderRadius:8, fontWeight:600 }}>
-                Cancel
-              </button>
-            )}
           </div>
-        </form>
-
-        {/* Items list */}
-        <div style={{ display:'grid', gap:12 }}>
-          {items.length === 0 && !itemsLoading && (
-            <div style={{ padding:16, border:'1px dashed #cbd5e1', borderRadius:12, color:'#64748b' }}>
-              No items yet. Add your first item above.
-            </div>
-          )}
-          {items.map((item) => (
-            <div key={item._id} style={{ display:'grid', gridTemplateColumns:'2fr 3fr 1fr auto', gap:12, alignItems:'center', padding:16, border:'1px solid #e2e8f0', borderRadius:12 }}>
-              <div>
-                <div style={{ fontWeight:700 }}>{item.title}</div>
-                <div style={{ fontSize:12, color:'#64748b' }}>Created {new Date(item.createdAt).toLocaleString()}</div>
-              </div>
-              <div style={{ color:'#334155' }}>{item.description || '—'}</div>
-              <div style={{ fontWeight:700, color:'#0ea5e9' }}>${Number(item.amount).toFixed(2)}</div>
-              <div style={{ display:'flex', gap:8, justifyContent:'flex-end' }}>
-                <button onClick={()=>startEdit(item)}
-                  style={{ padding:'8px 12px', background:'#fde68a', border:'none', borderRadius:8, cursor:'pointer', fontWeight:600 }}>
-                  Edit
-                </button>
-                <button onClick={()=>handleDelete(item._id)}
-                  style={{ padding:'8px 12px', background:'#fca5a5', border:'none', borderRadius:8, cursor:'pointer', fontWeight:700, color:'#7f1d1d' }}>
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
         </div>
-      </section>
+
+        {/* Campaign Cards Grid */}
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))',
+          gap: '1.5rem',
+          animation: 'slideIn 0.8s ease-out'
+        }}>
+          {campaigns.map((c, index) => {
+            const collected = c.donations.reduce((sum, d) => sum + d.amount, 0);
+            const progress = Math.min((collected / c.targetAmount) * 100, 100);
+            const color = colors[index % colors.length];
+
+            return (
+              <div
+                key={c._id}
+                style={{
+                  background: 'rgba(30, 41, 59, 0.5)',
+                  backdropFilter: 'blur(20px)',
+                  borderRadius: '20px',
+                  padding: '1.5rem',
+                  border: '1px solid rgba(249, 115, 22, 0.15)',
+                  boxShadow: '0 10px 40px rgba(0, 0, 0, 0.4)',
+                  transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                  position: 'relative',
+                  overflow: 'hidden'
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.transform = 'translateY(-8px)';
+                  e.currentTarget.style.boxShadow = '0 20px 60px rgba(0, 0, 0, 0.6)';
+                  e.currentTarget.style.borderColor = 'rgba(249, 115, 22, 0.4)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = 'translateY(0)';
+                  e.currentTarget.style.boxShadow = '0 10px 40px rgba(0, 0, 0, 0.4)';
+                  e.currentTarget.style.borderColor = 'rgba(249, 115, 22, 0.15)';
+                }}
+              >
+                {/* Accent gradient top */}
+                <div style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  height: '4px',
+                  background: `linear-gradient(90deg, ${color} 0%, ${colors[(index + 1) % colors.length]} 100%)`
+                }} />
+
+                {/* Title Header */}
+                <div style={{
+                  background: `linear-gradient(135deg, ${color}20 0%, ${color}10 100%)`,
+                  borderRadius: '12px',
+                  padding: '1.25rem',
+                  marginBottom: '1.25rem',
+                  border: `1px solid ${color}40`
+                }}>
+                  <h3 style={{
+                    color: color,
+                    fontSize: '1.4rem',
+                    fontWeight: '700',
+                    margin: 0,
+                    letterSpacing: '-0.01em'
+                  }}>
+                    {c.title}
+                  </h3>
+                </div>
+
+                <p style={{
+                  color: '#cbd5e1',
+                  fontSize: '0.95rem',
+                  lineHeight: '1.6',
+                  marginBottom: '1rem',
+                  fontWeight: '300'
+                }}>
+                  {c.description}
+                </p>
+
+                <div style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  marginBottom: '1rem',
+                  padding: '0.75rem',
+                  background: 'rgba(15, 23, 42, 0.5)',
+                  borderRadius: '10px',
+                  border: '1px solid rgba(249, 115, 22, 0.1)'
+                }}>
+                  <div>
+                    <p style={{ color: '#64748b', fontSize: '0.75rem', margin: '0 0 0.25rem 0', fontWeight: '500' }}>
+                      TARGET
+                    </p>
+                    <p style={{ color: '#f97316', fontSize: '1.1rem', fontWeight: '700', margin: 0 }}>
+                      ${c.targetAmount.toLocaleString()}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <p style={{ color: '#64748b', fontSize: '0.75rem', margin: '0 0 0.25rem 0', fontWeight: '500' }}>
+                      COLLECTED
+                    </p>
+                    <p style={{ color: '#10b981', fontSize: '1.1rem', fontWeight: '700', margin: 0 }}>
+                      ${collected.toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div style={{
+                  background: 'rgba(15, 23, 42, 0.7)',
+                  borderRadius: '10px',
+                  overflow: 'hidden',
+                  height: '12px',
+                  marginBottom: '1.25rem',
+                  border: '1px solid rgba(249, 115, 22, 0.2)',
+                  position: 'relative'
+                }}>
+                  <div style={{
+                    width: `${progress}%`,
+                    background: `linear-gradient(90deg, ${color} 0%, ${colors[(index + 1) % colors.length]} 100%)`,
+                    height: '100%',
+                    transition: 'width 0.5s cubic-bezier(0.4, 0, 0.2, 1)',
+                    boxShadow: `0 0 10px ${color}80`,
+                    position: 'relative',
+                    overflow: 'hidden'
+                  }}>
+                    <div style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.3) 50%, transparent 100%)',
+                      animation: 'shimmer 2s infinite',
+                      backgroundSize: '200% 100%'
+                    }} />
+                  </div>
+                </div>
+
+                <p style={{
+                  color: '#94a3b8',
+                  fontSize: '0.85rem',
+                  textAlign: 'center',
+                  marginBottom: '1rem',
+                  fontWeight: '500'
+                }}>
+                  {progress.toFixed(1)}% Funded
+                </p>
+
+                <button
+                  onClick={() => handleDonate(c._id)}
+                  style={{
+                    width: '100%',
+                    background: `linear-gradient(135deg, ${color} 0%, ${colors[(index + 1) % colors.length]} 100%)`,
+                    border: 'none',
+                    borderRadius: '10px',
+                    padding: '0.9rem',
+                    color: 'white',
+                    fontSize: '1rem',
+                    fontWeight: '600',
+                    cursor: 'pointer',
+                    transition: 'all 0.3s ease',
+                    marginBottom: '0.75rem',
+                    boxShadow: `0 4px 15px ${color}50`
+                  }}
+                  onMouseEnter={(e) => {
+                    e.target.style.transform = 'scale(1.02)';
+                    e.target.style.boxShadow = `0 6px 25px ${color}70`;
+                  }}
+                  onMouseLeave={(e) => {
+                    e.target.style.transform = 'scale(1)';
+                    e.target.style.boxShadow = `0 4px 15px ${color}50`;
+                  }}
+                >
+                  💝 Donate Now
+                </button>
+
+                {c.creator._id === userId && (
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <button
+                      onClick={() => alert('Edit feature coming soon!')}
+                      style={{
+                        flex: 1,
+                        background: 'rgba(251, 146, 60, 0.2)',
+                        border: '1px solid rgba(251, 146, 60, 0.4)',
+                        borderRadius: '10px',
+                        padding: '0.7rem',
+                        color: '#fb923c',
+                        fontSize: '0.9rem',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = 'rgba(251, 146, 60, 0.3)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'rgba(251, 146, 60, 0.2)';
+                      }}
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(c._id)}
+                      style={{
+                        flex: 1,
+                        background: 'rgba(239, 68, 68, 0.2)',
+                        border: '1px solid rgba(239, 68, 68, 0.4)',
+                        borderRadius: '10px',
+                        padding: '0.7rem',
+                        color: '#ef4444',
+                        fontSize: '0.9rem',
+                        fontWeight: '600',
+                        cursor: 'pointer',
+                        transition: 'all 0.3s ease'
+                      }}
+                      onMouseEnter={(e) => {
+                        e.target.style.background = 'rgba(239, 68, 68, 0.3)';
+                      }}
+                      onMouseLeave={(e) => {
+                        e.target.style.background = 'rgba(239, 68, 68, 0.2)';
+                      }}
+                    >
+                      🗑️ Delete
+                    </button>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {campaigns.length === 0 && (
+          <div style={{
+            textAlign: 'center',
+            padding: '4rem 2rem',
+            background: 'rgba(30, 41, 59, 0.4)',
+            borderRadius: '20px',
+            border: '1px solid rgba(249, 115, 22, 0.15)'
+          }}>
+            <p style={{ color: '#64748b', fontSize: '1.2rem', fontWeight: '300' }}>
+              No campaigns yet. Create your first campaign to get started!
+            </p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

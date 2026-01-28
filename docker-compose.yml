@@ -1,24 +1,26 @@
 version: '3.9'
 
 services:
+  # MongoDB Service
   mongo:
     image: mongo:6.0
     container_name: donation-mongo
     restart: unless-stopped
     volumes:
-      - mongo-data:/data/db
+      - mongo-data:/data/db   # Persist data even if container restarts
     ports:
-      - "27018:27017"  # host port for Compass
+      - "27018:27017"         # Host:Container port (for MongoDB Compass access)
     networks:
       - app-network
 
+  # Backend Service
   backend:
     build:
-      context: ./backend
+      context: ./backend       # Make sure your backend Dockerfile is here
       dockerfile: Dockerfile
     container_name: donation-backend
     env_file:
-      - ./backend/.env
+      - ./backend/.env         # Your environment variables
     ports:
       - "5000:5000"
     depends_on:
@@ -27,22 +29,25 @@ services:
       - app-network
     restart: unless-stopped
 
+  # Frontend Service
   frontend:
     build:
-      context: ./frontend
+      context: ./frontend     # Make sure your frontend Dockerfile is here
       dockerfile: Dockerfile
     container_name: donation-frontend
     ports:
-      - "3000:80"
+      - "3000:80"             # Map container port 80 to host port 3000
     depends_on:
       - backend
     networks:
       - app-network
     restart: unless-stopped
 
+# Persistent volume for MongoDB
 volumes:
   mongo-data:
 
+# Network for all services to communicate
 networks:
   app-network:
     driver: bridge
