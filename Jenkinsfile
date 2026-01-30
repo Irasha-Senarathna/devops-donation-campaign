@@ -5,21 +5,26 @@ pipeline {
         DOCKERHUB_USER = 'irashasenarathna'
         DOCKERHUB_PASSWORD = credentials('docker-hub-token')
         GITHUB_PAT = credentials('github-pat')
-        ANSIBLE_KEY = 'donation-app-key.pem' // Jenkins credential ID if needed
     }
 
     stages {
 
+        /* ---------------- CHECKOUT ---------------- */
         stage('Checkout Code') {
             steps {
                 checkout scm
             }
         }
 
-        stage('Terraform Init & Apply') {
+        /* ---------------- TERRAFORM ---------------- */
+        stage('Terraform Apply') {
+            when {
+                expression { fileExists('terraform') }
+            }
             steps {
-                dir('terraform') { // assume your Terraform files are in terraform/
+                dir('terraform') {
                     sh '''
+                        set -eux
                         terraform init
                         terraform apply -auto-approve
                     '''
@@ -27,41 +32,69 @@ pipeline {
             }
         }
 
+        stage('Terraform Skipped') {
+            when {
+                not { expression { fileExists('terraform') } }
+            }
+            steps {
+                echo '⚠️ terraform/ folder not found — skipping'
+            }
+        }
+
+        /* ---------------- FETCH EC2 IP ---------------- */
         stage('Fetch EC2 Public IP') {
+            when {
+                expression { fileExists('terraform') }
+            }
             steps {
                 script {
-                    // Read the Terraform output to get EC2 public IP
-                    EC2_HOST = sh(
+                    env.EC2_HOST = sh(
                         script: "cd terraform && terraform output -raw ec2_public_ip",
                         returnStdout: true
                     ).trim()
-                    echo "EC2 Public IP: ${EC2_HOST}"
+
+                    echo "✅ EC2 IP: ${env.EC2_HOST}"
                 }
             }
         }
 
+        /* ---------------- ANSIBLE ---------------- */
         stage('Ansible Configure EC2') {
+            when {
+                expression { fileExists('ansible') }
+            }
             steps {
-                dir('ansible') { // your ansible playbooks are here
-                    sh '''
-                        # Create inventory file dynamically
-                        echo "[web]" > inventory.ini
-                        echo "${EC2_HOST} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/donation-app-key.pem" >> inventory.ini
-                        
-                        ansible-playbook -i inventory.ini site.yml
-                    '''
+                sshagent(['ec2-ssh-key']) {
+                    dir('ansible') {
+                        sh '''
+                            set -eux
+                            echo "[web]" > inventory.ini
+                            echo "$EC2_HOST ansible_user=ubuntu" >> inventory.ini
+                            ansible-playbook -i inventory.ini site.yml
+                        '''
+                    }
                 }
             }
         }
 
+        stage('Ansible Skipped') {
+            when {
+                not { expression { fileExists('ansible') } }
+            }
+            steps {
+                echo '⚠️ ansible/ folder not found — skipping'
+            }
+        }
+
+        /* ---------------- DOCKER BUILD ---------------- */
         stage('Build Docker Images') {
             parallel {
-                stage('Build Frontend') {
+                stage('Frontend') {
                     steps {
                         sh 'docker build -t $DOCKERHUB_USER/donation-frontend:latest ./frontend'
                     }
                 }
-                stage('Build Backend') {
+                stage('Backend') {
                     steps {
                         sh 'docker build -t $DOCKERHUB_USER/donation-backend:latest ./backend'
                     }
@@ -79,86 +112,64 @@ pipeline {
             }
         }
 
-        stage('Deploy Docker on EC2') {
+        /* ---------------- DEPLOY ---------------- */
+        stage('Deploy to EC2') {
             steps {
                 sshagent(['ec2-ssh-key']) {
-                    sh """
-                        ssh -o StrictHostKeyChecking=no ubuntu@${EC2_HOST} '
-                            mkdir -p ~/donation-app
+                    sh '''
+                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST <<EOF
+                        set -eux
 
-                            # Remove old containers
-                            docker rm -f donation-backend donation-frontend mongodb || true
+                        mkdir -p ~/donation-app
+                        cd ~/donation-app
 
-                            # Create docker-compose.yml
-                            cat > ~/donation-app/docker-compose.yml <<EOF
-version: '3.8'
+                        docker rm -f donation-backend donation-frontend mongodb || true
+
+                        cat > docker-compose.yml <<COMPOSE
+version: "3.8"
 
 services:
   mongodb:
     image: mongo:6
-    container_name: mongodb
-    restart: always
     volumes:
       - mongo-data:/data/db
-    networks:
-      - app-network
 
   backend:
-    image: ${DOCKERHUB_USER}/donation-backend:latest
-    container_name: donation-backend
-    restart: always
+    image: irashasenarathna/donation-backend:latest
     ports:
       - "5000:5000"
-    environment:
-      - NODE_ENV=production
-      - PORT=5000
-      - MONGO_URI=mongodb://mongodb:27017/donation_db
-      - JWT_SECRET=your_super_secret_jwt_key_change_in_production
     depends_on:
       - mongodb
-    networks:
-      - app-network
 
   frontend:
-    image: ${DOCKERHUB_USER}/donation-frontend:latest
-    container_name: donation-frontend
-    restart: always
+    image: irashasenarathna/donation-frontend:latest
     ports:
       - "3000:80"
     depends_on:
       - backend
-    networks:
-      - app-network
 
 volumes:
   mongo-data:
+COMPOSE
 
-networks:
-  app-network:
-    driver: bridge
+                        docker-compose pull
+                        docker-compose down || true
+                        docker-compose up -d
+                        docker ps
 EOF
-
-                            # Pull images and start containers
-                            cd ~/donation-app
-                            docker-compose pull
-                            docker-compose down --remove-orphans || true
-                            docker-compose up -d
-                            sleep 15
-                            docker ps
-                        '
-                    """
+                    '''
                 }
             }
         }
 
+        /* ---------------- HEALTH ---------------- */
         stage('Health Check') {
             steps {
-                sh """
-                    echo "Checking application health..."
+                sh '''
                     sleep 10
-                    curl -f http://${EC2_HOST}:3000 && echo "✅ Frontend is up!"
-                    curl -f http://${EC2_HOST}:5000/api/health && echo "✅ Backend is up!"
-                """
+                    curl -f http://$EC2_HOST:3000
+                    curl -f http://$EC2_HOST:5000 || true
+                '''
             }
         }
     }
@@ -166,16 +177,16 @@ EOF
     post {
         success {
             echo """
-            ========================================
-            ✅ DEPLOYMENT SUCCESSFUL!
-            ========================================
-            Frontend: http://${EC2_HOST}:3000
-            Backend:  http://${EC2_HOST}:5000
-            ========================================
-            """
+========================================
+✅ DEPLOYMENT SUCCESSFUL!
+========================================
+Frontend: http://${EC2_HOST}:3000
+Backend:  http://${EC2_HOST}:5000
+========================================
+"""
         }
         failure {
-            echo '❌ Deployment failed! Check the logs above.'
+            echo '❌ Deployment failed — check logs above'
         }
     }
 }
