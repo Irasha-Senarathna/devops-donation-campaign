@@ -12,6 +12,11 @@ services:
       - "27018:27017"         # Host port 27018, container port 27017
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.stats()"]
+      interval: 10s
+      retries: 20
+      start_period: 15s
 
   # Backend Service
   backend:
@@ -24,10 +29,16 @@ services:
     ports:
       - "5000:5000"
     depends_on:
-      - mongo
+      mongo:
+        condition: service_healthy
     networks:
       - app-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 15s
+      retries: 20
+      start_period: 15s
 
   # Frontend Service
   frontend:
@@ -38,10 +49,16 @@ services:
     ports:
       - "3000:80"             # Map container port 80 to host port 3000
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - app-network
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 15s
+      retries: 20
+      start_period: 15s
 
 # Persistent volume for MongoDB
 volumes:
