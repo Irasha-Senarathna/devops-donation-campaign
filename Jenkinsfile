@@ -33,15 +33,21 @@ pipeline {
             }
         }
 
-        // Stage 3: Push to Docker Hub
+        // Stage 3: Push to Docker Hub (with retry for network issues)
         stage('Push to Docker Hub') {
             steps {
                 withCredentials([string(credentialsId: 'docker-hub-token', variable: 'DOCKERHUB_PASSWORD')]) {
-                    sh '''
-                        echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USER --password-stdin
-                        docker push $DOCKERHUB_USER/donation-frontend:latest
-                        docker push $DOCKERHUB_USER/donation-backend:latest
-                    '''
+                    retry(3) {
+                        sh '''
+                            echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USER --password-stdin
+                            
+                            echo "📤 Pushing Frontend..."
+                            docker push $DOCKERHUB_USER/donation-frontend:latest
+                            
+                            echo "📤 Pushing Backend..."
+                            docker push $DOCKERHUB_USER/donation-backend:latest
+                        '''
+                    }
                 }
             }
         }
