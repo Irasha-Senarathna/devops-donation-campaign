@@ -4,15 +4,55 @@ pipeline {
     environment {
         DOCKERHUB_USER = 'irashasenarathna'
         DOCKERHUB_PASSWORD = credentials('docker-hub-token')
-        EC2_HOST = credentials('ec2-host')
+        GITHUB_PAT = credentials('github-pat')
+        ANSIBLE_KEY = 'donation-app-key.pem' // Jenkins credential ID if needed
     }
 
     stages {
-        stage('Checkout') {
+
+        stage('Checkout Code') {
             steps {
-                git branch: 'main', 
+                git branch: 'main',
                     url: 'https://github.com/Irasha-Senarathna/devops-donation-campaign.git',
                     credentialsId: 'github-pat'
+            }
+        }
+
+        stage('Terraform Init & Apply') {
+            steps {
+                dir('terraform') { // assume your Terraform files are in terraform/
+                    sh '''
+                        terraform init
+                        terraform apply -auto-approve
+                    '''
+                }
+            }
+        }
+
+        stage('Fetch EC2 Public IP') {
+            steps {
+                script {
+                    // Read the Terraform output to get EC2 public IP
+                    EC2_HOST = sh(
+                        script: "cd terraform && terraform output -raw ec2_public_ip",
+                        returnStdout: true
+                    ).trim()
+                    echo "EC2 Public IP: ${EC2_HOST}"
+                }
+            }
+        }
+
+        stage('Ansible Configure EC2') {
+            steps {
+                dir('ansible') { // your ansible playbooks are here
+                    sh '''
+                        # Create inventory file dynamically
+                        echo "[web]" > inventory.ini
+                        echo "${EC2_HOST} ansible_user=ubuntu ansible_ssh_private_key_file=~/.ssh/donation-app-key.pem" >> inventory.ini
+                        
+                        ansible-playbook -i inventory.ini site.yml
+                    '''
+                }
             }
         }
 
@@ -31,7 +71,7 @@ pipeline {
             }
         }
 
-        stage('Push to Docker Hub') {
+        stage('Push Docker Images') {
             steps {
                 sh '''
                     echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USER --password-stdin
@@ -41,12 +81,18 @@ pipeline {
             }
         }
 
-        stage('Deploy to EC2') {
+        stage('Deploy Docker on EC2') {
             steps {
                 sshagent(['ec2-ssh-key']) {
-                    sh '''
-                        # create docker-compose.yml locally with variables expanded
-                        cat > docker-compose.yml <<EOF
+                    sh """
+                        ssh -o StrictHostKeyChecking=no ubuntu@${EC2_HOST} '
+                            mkdir -p ~/donation-app
+
+                            # Remove old containers
+                            docker rm -f donation-backend donation-frontend mongodb || true
+
+                            # Create docker-compose.yml
+                            cat > ~/donation-app/docker-compose.yml <<EOF
 version: '3.8'
 
 services:
@@ -94,59 +140,44 @@ networks:
     driver: bridge
 EOF
 
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST '
-                            set -x
-
-                            # ensure app folder
-                            mkdir -p ~/donation-app
-
-                            # copy docker-compose
-                            cat > ~/donation-app/docker-compose.yml << "EOD"
-'"$(cat docker-compose.yml)"'
-EOD
-
-                            # Remove old containers safely
-                            docker rm -f donation-backend donation-frontend mongodb || true
-
-                            # Pull latest images
-                            docker-compose -f ~/donation-app/docker-compose.yml pull || true
-
-                            # Stop old containers safely
-                            docker-compose -f ~/donation-app/docker-compose.yml down --remove-orphans || true
-
-                            # Start containers
-                            docker-compose -f ~/donation-app/docker-compose.yml up -d || true
-
+                            # Pull images and start containers
+                            cd ~/donation-app
+                            docker-compose pull
+                            docker-compose down --remove-orphans || true
+                            docker-compose up -d
                             sleep 15
                             docker ps
                         '
-                    '''
+                    """
                 }
             }
         }
 
         stage('Health Check') {
             steps {
-                sh '''
+                sh """
                     echo "Checking application health..."
                     sleep 10
-                    curl -f http://$EC2_HOST:3000 && echo "✅ Frontend is up!"
-                    curl -f http://$EC2_HOST:5000/api/health && echo "✅ Backend is up!"
-                '''
+                    curl -f http://${EC2_HOST}:3000 && echo "✅ Frontend is up!"
+                    curl -f http://${EC2_HOST}:5000/api/health && echo "✅ Backend is up!"
+                """
             }
         }
     }
 
-  post {
-    success {
-        echo """
-        ========================================
-        ✅ DEPLOYMENT SUCCESSFUL!
-        ========================================
-        Frontend: http://13.232.8.19:3000
-        Backend:  http://13.232.8.19:5000
-        ========================================
-        """
+    post {
+        success {
+            echo """
+            ========================================
+            ✅ DEPLOYMENT SUCCESSFUL!
+            ========================================
+            Frontend: http://${EC2_HOST}:3000
+            Backend:  http://${EC2_HOST}:5000
+            ========================================
+            """
+        }
+        failure {
+            echo '❌ Deployment failed! Check the logs above.'
+        }
     }
-}
 }
