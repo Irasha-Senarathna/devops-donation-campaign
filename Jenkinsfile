@@ -2,9 +2,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKERHUB_USER     = 'irashasenarathna'
-        DOCKERHUB_PASSWORD = credentials('docker-hub-token')
-        EC2_HOST           = '13.232.8.19'   // ✅ FIXED (NO credentials)
+        EC2_HOST = '13.232.8.19'
     }
 
     stages {
@@ -17,42 +15,24 @@ pipeline {
             }
         }
 
-        stage('Docker Login') {
-            steps {
-                sh '''
-                  echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USER" --password-stdin
-                '''
-            }
-        }
-
-        stage('Build Images') {
-            steps {
-                sh '''
-                  docker build -t $DOCKERHUB_USER/donation-backend:latest ./backend
-                  docker build -t $DOCKERHUB_USER/donation-frontend:latest ./frontend
-                '''
-            }
-        }
-
-        stage('Push Images') {
-            steps {
-                sh '''
-                  docker push $DOCKERHUB_USER/donation-backend:latest
-                  docker push $DOCKERHUB_USER/donation-frontend:latest
-                '''
-            }
-        }
-
-        stage('Deploy to EC2') {
+        stage('Deploy & Build on EC2') {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
                     ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST << 'EOF'
                       set -e
 
+                      echo "🚀 Preparing server..."
                       mkdir -p ~/donation-app
                       cd ~/donation-app
 
+                      if [ ! -d .git ]; then
+                        git clone https://github.com/Irasha-Senarathna/devops-donation-campaign.git .
+                      else
+                        git pull origin main
+                      fi
+
+                      echo "🧱 Writing docker-compose.yml..."
                       cat > docker-compose.yml << 'EOC'
 version: '3.9'
 services:
@@ -65,7 +45,7 @@ services:
       - "27018:27017"
 
   backend:
-    image: irashasenarathna/donation-backend:latest
+    build: ./backend
     ports:
       - "5000:5000"
     environment:
@@ -77,7 +57,7 @@ services:
       - mongo
 
   frontend:
-    image: irashasenarathna/donation-frontend:latest
+    build: ./frontend
     ports:
       - "3000:80"
     depends_on:
@@ -87,14 +67,14 @@ volumes:
   mongo-data:
 EOC
 
-                      # ✅ Support both compose versions
+                      echo "🐳 Deploying containers..."
                       if command -v docker-compose >/dev/null 2>&1; then
                         docker-compose down || true
-                        docker-compose pull
+                        docker-compose build
                         docker-compose up -d
                       else
                         docker compose down || true
-                        docker compose pull
+                        docker compose build
                         docker compose up -d
                       fi
 
@@ -109,19 +89,10 @@ EOF
             steps {
                 sh '''
                   echo "⏳ Waiting for services..."
-                  sleep 20
+                  sleep 25
 
-                  for i in {1..5}; do
-                    curl -f http://$EC2_HOST:5000/api/health && break
-                    echo "Retry backend..."
-                    sleep 5
-                  done
-
-                  for i in {1..5}; do
-                    curl -f http://$EC2_HOST:3000 && break
-                    echo "Retry frontend..."
-                    sleep 5
-                  done
+                  curl -f http://$EC2_HOST:5000/api/health
+                  curl -f http://$EC2_HOST:3000
                 '''
             }
         }
@@ -129,10 +100,14 @@ EOF
 
     post {
         success {
-            echo "✅ DEPLOYMENT SUCCESSFUL"
+            echo """
+✅ DEPLOYMENT SUCCESSFUL
+Frontend: http://$EC2_HOST:3000
+Backend:  http://$EC2_HOST:5000
+"""
         }
         failure {
-            echo "❌ DEPLOYMENT FAILED — check logs above"
+            echo "❌ DEPLOYMENT FAILED — check logs"
         }
     }
 }
