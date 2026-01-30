@@ -12,9 +12,7 @@ pipeline {
 
         stage('Checkout Code') {
             steps {
-                git branch: 'main',
-                    url: 'https://github.com/Irasha-Senarathna/devops-donation-campaign.git',
-                    credentialsId: 'github-pat'
+                checkout scm
             }
         }
 
