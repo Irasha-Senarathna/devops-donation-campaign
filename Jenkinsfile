@@ -137,19 +137,16 @@ EOD
         }
     }
 
-    post {
-        success {
-            echo """
-            ========================================
-            ✅ DEPLOYMENT SUCCESSFUL!
-            ========================================
-            Frontend: http://${EC2_HOST}:3000
-            Backend:  http://${EC2_HOST}:5000
-            ========================================
-            """
-        }
-        failure {
-            echo '❌ Deployment failed! Check the logs above.'
-        }
+  post {
+    success {
+        echo """
+        ========================================
+        ✅ DEPLOYMENT SUCCESSFUL!
+        ========================================
+        Frontend: http://13.232.8.19:3000
+        Backend:  http://13.232.8.19:5000
+        ========================================
+        """
     }
+}
 }
