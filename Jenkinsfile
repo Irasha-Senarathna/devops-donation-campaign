@@ -46,17 +46,9 @@ pipeline {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
                         set -euxo pipefail
-                        # Login to remote and deploy (login to Docker Hub on remote too)
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST bash -lc "
-                            set -euxo pipefail
 
-                            # Ensure docker & docker-compose exist
-                            docker --version || (echo 'docker missing' && exit 1)
-                            docker-compose --version || (echo 'docker-compose missing' && exit 1)
-
-                            mkdir -p ~/donation-app
-
-                            cat > ~/donation-app/docker-compose.yml << 'EOF'
+                        # create a local docker-compose with variables expanded
+                        cat > docker-compose.yml <<EOF
 version: '3.8'
 
 services:
@@ -74,7 +66,7 @@ services:
     container_name: donation-backend
     restart: always
     ports:
-      - \"5000:5000\"
+      - "5000:5000"
     environment:
       - NODE_ENV=production
       - PORT=5000
@@ -90,7 +82,7 @@ services:
     container_name: donation-frontend
     restart: always
     ports:
-      - \"3000:80\"
+      - "3000:80"
     depends_on:
       - backend
     networks:
@@ -104,17 +96,31 @@ networks:
     driver: bridge
 EOF
 
-                            # Login to Docker Hub on remote so docker-compose pull can pull private images
-                            echo \"$DOCKERHUB_PASSWORD\" | docker login -u \"$DOCKERHUB_USER\" --password-stdin
+                        # show generated file for debugging
+                        sed -n '1,200p' docker-compose.yml
 
-                            # Cleanup and start
-                            docker rm -f donation-backend donation-frontend mongodb || true
+                        # ensure remote dir
+                        ssh -vvv -o StrictHostKeyChecking=no ubuntu@$EC2_HOST 'mkdir -p ~/donation-app'
+
+                        # copy the compose file to remote (uses ssh-agent key)
+                        scp -o StrictHostKeyChecking=no docker-compose.yml ubuntu@$EC2_HOST:~/donation-app/docker-compose.yml
+
+                        # run remote deployment with verbose ssh to capture fail reason
+                        ssh -vvv -o StrictHostKeyChecking=no ubuntu@$EC2_HOST bash -lc "
+                            set -euxo pipefail
+
+                            docker --version || (echo 'docker missing' && exit 2)
+                            docker-compose --version || (echo 'docker-compose missing' && exit 2)
+
+                            # login to Docker Hub on remote
+                            echo '$DOCKERHUB_PASSWORD' | docker login -u '$DOCKERHUB_USER' --password-stdin
+
                             cd ~/donation-app
                             docker-compose pull
                             docker-compose down --remove-orphans || true
                             docker-compose up -d
 
-                            sleep 20
+                            sleep 10
                             docker ps
                         "
                     '''
