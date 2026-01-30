@@ -17,11 +17,23 @@ pipeline {
             }
         }
 
+        stage('Docker Login') {
+            steps {
+                script {
+                    retry(3) {
+                        sh '''
+                            echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USER --password-stdin
+                        '''
+                    }
+                }
+            }
+        }
+
         stage('Build Docker Images') {
             parallel {
                 stage('Build Frontend') {
                     steps {
-                        retry(3) { // Retry 3 times in case of network timeout
+                        retry(3) {
                             sh '''
                                 echo "Building frontend image..."
                                 DOCKER_BUILDKIT=1 docker build --pull -t $DOCKERHUB_USER/donation-frontend:latest ./frontend
@@ -44,11 +56,14 @@ pipeline {
 
         stage('Push to Docker Hub') {
             steps {
-                sh '''
-                    echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USER --password-stdin
-                    docker push $DOCKERHUB_USER/donation-frontend:latest
-                    docker push $DOCKERHUB_USER/donation-backend:latest
-                '''
+                script {
+                    retry(3) { // Retry push if network fails
+                        sh '''
+                            docker push $DOCKERHUB_USER/donation-frontend:latest
+                            docker push $DOCKERHUB_USER/donation-backend:latest
+                        '''
+                    }
+                }
             }
         }
 
@@ -56,7 +71,6 @@ pipeline {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                        # generate docker-compose.yml locally
                         cat > docker-compose.yml <<EOF
 version: '3.8'
 
@@ -107,14 +121,11 @@ EOF
 
                         ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST '
                             set -x
-
                             mkdir -p ~/donation-app
-
                             cat > ~/donation-app/docker-compose.yml << "EOD"
 '"$(cat docker-compose.yml)"'
 EOD
 
-                            # Stop and remove old containers
                             docker rm -f donation-backend donation-frontend mongodb || true
                             docker-compose -f ~/donation-app/docker-compose.yml pull || true
                             docker-compose -f ~/donation-app/docker-compose.yml down --remove-orphans || true
