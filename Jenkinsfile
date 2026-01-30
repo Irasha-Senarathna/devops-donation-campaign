@@ -8,6 +8,7 @@ pipeline {
     }
 
     stages {
+        // Stage 1: Checkout Code
         stage('Checkout') {
             steps {
                 git branch: 'main', 
@@ -16,6 +17,7 @@ pipeline {
             }
         }
 
+        // Stage 2: Build Docker Images
         stage('Build Docker Images') {
             parallel {
                 stage('Build Frontend') {
@@ -31,6 +33,7 @@ pipeline {
             }
         }
 
+        // Stage 3: Push Docker Images to Docker Hub
         stage('Push to Docker Hub') {
             steps {
                 sh '''
@@ -41,13 +44,14 @@ pipeline {
             }
         }
 
+        // Stage 4: Deploy to EC2
         stage('Deploy to EC2') {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                        # Copy docker-compose to EC2
+                        # Create app directory on EC2
                         ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "mkdir -p ~/donation-app"
-                        
+
                         # Create docker-compose.yml on EC2
                         ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "cat > ~/donation-app/docker-compose.yml << 'EOF'
 version: '3.8'
@@ -96,10 +100,15 @@ networks:
   app-network:
     driver: bridge
 EOF"
-                        
-                        # Deploy on EC2
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "cd ~/donation-app && docker-compose pull && docker-compose down && docker-compose up -d"
-                        
+
+                        # Deploy containers safely
+                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "
+                            cd ~/donation-app &&
+                            docker-compose pull &&
+                            docker-compose down --remove-orphans &&
+                            docker-compose up -d
+                        "
+
                         # Wait and verify
                         sleep 30
                         ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "docker ps"
@@ -108,6 +117,7 @@ EOF"
             }
         }
 
+        // Stage 5: Health Check
         stage('Health Check') {
             steps {
                 sh '''
