@@ -57,7 +57,7 @@ pipeline {
         stage('Push to Docker Hub') {
             steps {
                 script {
-                    retry(3) { // Retry push if network fails
+                    retry(3) {
                         sh '''
                             docker push $DOCKERHUB_USER/donation-frontend:latest
                             docker push $DOCKERHUB_USER/donation-backend:latest
@@ -71,6 +71,7 @@ pipeline {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
+                        # create docker-compose.yml
                         cat > docker-compose.yml <<EOF
 version: '3.8'
 
@@ -83,6 +84,10 @@ services:
       - mongo-data:/data/db
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "mongo", "--eval", "db.stats()"]
+      interval: 10s
+      retries: 5
 
   backend:
     image: ${DOCKERHUB_USER}/donation-backend:latest
@@ -96,9 +101,14 @@ services:
       - MONGO_URI=mongodb://mongodb:27017/donation_db
       - JWT_SECRET=your_super_secret_jwt_key_change_in_production
     depends_on:
-      - mongodb
+      mongodb:
+        condition: service_healthy
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 10s
+      retries: 5
 
   frontend:
     image: ${DOCKERHUB_USER}/donation-frontend:latest
@@ -107,9 +117,14 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
     networks:
       - app-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost"]
+      interval: 10s
+      retries: 5
 
 volumes:
   mongo-data:
@@ -120,18 +135,19 @@ networks:
 EOF
 
                         ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST '
-                            set -x
+                            set -e
                             mkdir -p ~/donation-app
                             cat > ~/donation-app/docker-compose.yml << "EOD"
 '"$(cat docker-compose.yml)"'
 EOD
 
                             docker rm -f donation-backend donation-frontend mongodb || true
-                            docker-compose -f ~/donation-app/docker-compose.yml pull || true
-                            docker-compose -f ~/donation-app/docker-compose.yml down --remove-orphans || true
-                            docker-compose -f ~/donation-app/docker-compose.yml up -d || true
+                            docker-compose -f ~/donation-app/docker-compose.yml pull
+                            docker-compose -f ~/donation-app/docker-compose.yml down --remove-orphans
+                            docker-compose -f ~/donation-app/docker-compose.yml up -d
 
-                            sleep 15
+                            echo "Waiting for containers to become healthy..."
+                            docker-compose -f ~/donation-app/docker-compose.yml wait
                             docker ps
                         '
                     '''
@@ -141,12 +157,16 @@ EOD
 
         stage('Health Check') {
             steps {
-                sh '''
-                    echo "Checking application health..."
-                    sleep 10
-                    curl -f http://$EC2_HOST:3000 && echo "✅ Frontend is up!"
-                    curl -f http://$EC2_HOST:5000/api/health && echo "✅ Backend is up!"
-                '''
+                script {
+                    retry(5) {
+                        sh '''
+                            echo "Checking frontend..."
+                            curl -f http://$EC2_HOST:3000 && echo "✅ Frontend is up!" || (echo "Frontend not ready"; exit 1)
+                            echo "Checking backend..."
+                            curl -f http://$EC2_HOST:5000/api/health && echo "✅ Backend is up!" || (echo "Backend not ready"; exit 1)
+                        '''
+                    }
+                }
             }
         }
     }
