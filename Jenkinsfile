@@ -2,11 +2,13 @@ pipeline {
     agent any
 
     environment {
+        DOCKERHUB_USER = 'irashasenarathna'
         EC2_HOST = '13.204.67.80'
     }
 
     stages {
 
+        // Stage 1: Checkout Code
         stage('Checkout') {
             steps {
                 git branch: 'main',
@@ -15,100 +17,135 @@ pipeline {
             }
         }
 
-        stage('Deploy & Build on EC2') {
+        // Stage 2: Build Docker Images on Jenkins
+        stage('Build Docker Images') {
+            parallel {
+                stage('Build Frontend') {
+                    steps {
+                        sh 'docker build -t $DOCKERHUB_USER/donation-frontend:latest ./frontend'
+                    }
+                }
+                stage('Build Backend') {
+                    steps {
+                        sh 'docker build -t $DOCKERHUB_USER/donation-backend:latest ./backend'
+                    }
+                }
+            }
+        }
+
+        // Stage 3: Push to Docker Hub
+        stage('Push to Docker Hub') {
+            steps {
+                withCredentials([string(credentialsId: 'docker-hub-token', variable: 'DOCKERHUB_PASSWORD')]) {
+                    sh '''
+                        echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USER --password-stdin
+                        docker push $DOCKERHUB_USER/donation-frontend:latest
+                        docker push $DOCKERHUB_USER/donation-backend:latest
+                    '''
+                }
+            }
+        }
+
+        // Stage 4: Deploy to EC2
+        stage('Deploy to EC2') {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                    echo "🔑 Testing SSH connectivity..."
-                    ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "echo SSH_OK"
+                        echo "🔑 Testing SSH connectivity..."
+                        ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no ubuntu@13.204.67.80 "echo SSH_OK"
 
-                    echo "🚀 Connected. Deploying..."
+                        echo "🚀 Connected. Deploying..."
 
-                    ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST << 'EOF'
-                      set -e
+                        ssh -o StrictHostKeyChecking=no ubuntu@13.204.67.80 << 'EOF'
+set -e
 
-                      echo "🛑 Stopping containers using ports 5000 & 3000 (if any)"
-                      docker ps --format "{{.ID}} {{.Ports}}" | grep -E "0.0.0.0:5000|0.0.0.0:3000" | awk '{print $1}' | xargs -r docker stop
-                      docker ps -a --format "{{.ID}} {{.Ports}}" | grep -E "0.0.0.0:5000|0.0.0.0:3000" | awk '{print $1}' | xargs -r docker rm
+echo "🛑 Stopping old containers (if any)"
+docker stop donation-frontend donation-backend mongodb 2>/dev/null || true
+docker rm donation-frontend donation-backend mongodb 2>/dev/null || true
 
-                      echo "🧹 Cleaning old docker resources"
-                      docker network prune -f || true
+echo "🧹 Cleaning old docker resources"
+docker network prune -f || true
 
-                      echo "📁 Resetting app directory"
-                      rm -rf ~/donation-app
-                      mkdir -p ~/donation-app
-                      cd ~/donation-app
+echo "📁 Setting up app directory"
+mkdir -p ~/donation-app
+cd ~/donation-app
 
-                      echo "📥 Cloning repository fresh"
-                      git clone https://github.com/Irasha-Senarathna/devops-donation-campaign.git .
+echo "🧱 Writing docker-compose.yml"
+cat > docker-compose.yml << 'EOC'
+version: '3.8'
 
-                      echo "🧱 Writing docker-compose.yml"
-                      cat > docker-compose.yml << 'EOC'
-version: '3.9'
 services:
-  mongo:
-    image: mongo:6.0
-    restart: unless-stopped
+  mongodb:
+    image: mongo:6
+    container_name: mongodb
+    restart: always
     volumes:
       - mongo-data:/data/db
-    ports:
-      - "27018:27017"
+    networks:
+      - app-network
 
   backend:
-    build: ./backend
+    image: irashasenarathna/donation-backend:latest
+    container_name: donation-backend
+    restart: always
     ports:
       - "5000:5000"
     environment:
-      NODE_ENV: production
-      PORT: 5000
-      MONGO_URI: mongodb://mongo:27017/donation_db
-      JWT_SECRET: change_this
+      - NODE_ENV=production
+      - PORT=5000
+      - MONGO_URI=mongodb://mongodb:27017/donation_db
+      - JWT_SECRET=your_super_secret_jwt_key_change_in_production
     depends_on:
-      - mongo
+      - mongodb
+    networks:
+      - app-network
 
   frontend:
-    build: ./frontend
+    image: irashasenarathna/donation-frontend:latest
+    container_name: donation-frontend
+    restart: always
     ports:
       - "3000:80"
     depends_on:
       - backend
+    networks:
+      - app-network
 
 volumes:
   mongo-data:
+
+networks:
+  app-network:
+    driver: bridge
 EOC
 
-                      echo "🐳 Deploying containers"
+echo "🐳 Pulling latest images from Docker Hub"
+docker-compose pull
 
-                      if command -v docker-compose >/dev/null 2>&1; then
-                        echo "➡ Using docker-compose (v1)"
-                        docker-compose down --remove-orphans || true
-                        docker-compose build
-                        docker-compose up -d
-                      elif docker compose version >/dev/null 2>&1; then
-                        echo "➡ Using docker compose (v2)"
-                        docker compose down --remove-orphans || true
-                        docker compose build
-                        docker compose up -d
-                      else
-                        echo "❌ Docker Compose not installed"
-                        exit 1
-                      fi
+echo "🚀 Starting containers"
+docker-compose down --remove-orphans || true
+docker-compose up -d
 
-                      echo "📦 Running containers:"
-                      docker ps
+echo "📦 Running containers:"
+docker ps
 EOF
                     '''
                 }
             }
         }
 
-        stage('Smoke Test') {
+        // Stage 5: Health Check
+        stage('Health Check') {
             steps {
                 sh '''
-                  echo "⏳ Waiting for services..."
-                  sleep 35
-                  curl -f http://$EC2_HOST:5000/api/health
-                  curl -f http://$EC2_HOST:3000
+                    echo "⏳ Waiting for services to start..."
+                    sleep 35
+                    
+                    echo "🔍 Checking Frontend..."
+                    curl -f http://13.204.67.80:3000 || echo "Frontend check failed"
+                    
+                    echo "🔍 Checking Backend..."
+                    curl -f http://13.204.67.80:5000/api/health || echo "Backend check failed"
                 '''
             }
         }
@@ -117,13 +154,19 @@ EOF
     post {
         success {
             echo """
-✅ DEPLOYMENT SUCCESSFUL
-Frontend: http://$EC2_HOST:3000
-Backend:  http://$EC2_HOST:5000
+========================================
+✅ DEPLOYMENT SUCCESSFUL!
+========================================
+Frontend: http://13.204.67.80:3000
+Backend:  http://13.204.67.80:5000
+========================================
 """
         }
         failure {
-            echo "❌ DEPLOYMENT FAILED — see logs above"
+            echo '❌ DEPLOYMENT FAILED — see logs above'
+        }
+        always {
+            sh 'docker system prune -f || true'
         }
     }
 }
