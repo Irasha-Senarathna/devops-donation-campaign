@@ -4,97 +4,26 @@ pipeline {
     environment {
         DOCKERHUB_USER = 'irashasenarathna'
         DOCKERHUB_PASSWORD = credentials('docker-hub-token')
-        GITHUB_PAT = credentials('github-pat')
+        EC2_HOST = credentials('ec2-host')   // should be your public IP of EC2
     }
 
     stages {
-
-        /* ---------------- CHECKOUT ---------------- */
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
-                checkout scm
+                git branch: 'main', 
+                    url: 'https://github.com/Irasha-Senarathna/devops-donation-campaign.git',
+                    credentialsId: 'github-pat'
             }
         }
 
-        /* ---------------- TERRAFORM ---------------- */
-        stage('Terraform Apply') {
-            when {
-                expression { fileExists('terraform') }
-            }
-            steps {
-                dir('terraform') {
-                    sh '''
-                        set -eux
-                        terraform init
-                        terraform apply -auto-approve
-                    '''
-                }
-            }
-        }
-
-        stage('Terraform Skipped') {
-            when {
-                not { expression { fileExists('terraform') } }
-            }
-            steps {
-                echo '⚠️ terraform/ folder not found — skipping'
-            }
-        }
-
-        /* ---------------- FETCH EC2 IP ---------------- */
-        stage('Fetch EC2 Public IP') {
-            when {
-                expression { fileExists('terraform') }
-            }
-            steps {
-                script {
-                    env.EC2_HOST = sh(
-                        script: "cd terraform && terraform output -raw ec2_public_ip",
-                        returnStdout: true
-                    ).trim()
-
-                    echo "✅ EC2 IP: ${env.EC2_HOST}"
-                }
-            }
-        }
-
-        /* ---------------- ANSIBLE ---------------- */
-        stage('Ansible Configure EC2') {
-            when {
-                expression { fileExists('ansible') }
-            }
-            steps {
-                sshagent(['ec2-ssh-key']) {
-                    dir('ansible') {
-                        sh '''
-                            set -eux
-                            echo "[web]" > inventory.ini
-                            echo "$EC2_HOST ansible_user=ubuntu" >> inventory.ini
-                            ansible-playbook -i inventory.ini site.yml
-                        '''
-                    }
-                }
-            }
-        }
-
-        stage('Ansible Skipped') {
-            when {
-                not { expression { fileExists('ansible') } }
-            }
-            steps {
-                echo '⚠️ ansible/ folder not found — skipping'
-            }
-        }
-
-        /* ---------------- DOCKER BUILD ---------------- */
         stage('Build Docker Images') {
             parallel {
-                stage('Frontend') {
+                stage('Build Frontend') {
                     steps {
                         sh 'docker build -t $DOCKERHUB_USER/donation-frontend:latest ./frontend'
                     }
                 }
-                stage('Backend') {
+                stage('Build Backend') {
                     steps {
                         sh 'docker build -t $DOCKERHUB_USER/donation-backend:latest ./backend'
                     }
@@ -102,7 +31,7 @@ pipeline {
             }
         }
 
-        stage('Push Docker Images') {
+        stage('Push to Docker Hub') {
             steps {
                 sh '''
                     echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USER --password-stdin
@@ -112,63 +41,96 @@ pipeline {
             }
         }
 
-        /* ---------------- DEPLOY ---------------- */
         stage('Deploy to EC2') {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST <<EOF
-                        set -eux
-
-                        mkdir -p ~/donation-app
-                        cd ~/donation-app
-
-                        docker rm -f donation-backend donation-frontend mongodb || true
-
-                        cat > docker-compose.yml <<COMPOSE
-version: "3.8"
+                        # Create docker-compose.yml with updated images
+                        cat > docker-compose.yml <<EOF
+version: '3.8'
 
 services:
   mongodb:
     image: mongo:6
+    container_name: mongodb
+    restart: always
     volumes:
       - mongo-data:/data/db
+    networks:
+      - app-network
 
   backend:
-    image: irashasenarathna/donation-backend:latest
+    image: ${DOCKERHUB_USER}/donation-backend:latest
+    container_name: donation-backend
+    restart: always
     ports:
       - "5000:5000"
+    environment:
+      - NODE_ENV=production
+      - PORT=5000
+      - MONGO_URI=mongodb://mongodb:27017/donation_db
+      - JWT_SECRET=your_super_secret_jwt_key_change_in_production
     depends_on:
       - mongodb
+    networks:
+      - app-network
 
   frontend:
-    image: irashasenarathna/donation-frontend:latest
+    image: ${DOCKERHUB_USER}/donation-frontend:latest
+    container_name: donation-frontend
+    restart: always
     ports:
       - "3000:80"
     depends_on:
       - backend
+    networks:
+      - app-network
 
 volumes:
   mongo-data:
-COMPOSE
 
-                        docker-compose pull
-                        docker-compose down || true
-                        docker-compose up -d
-                        docker ps
+networks:
+  app-network:
+    driver: bridge
 EOF
+
+                        # SSH into EC2 and deploy
+                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST '
+                            set -x
+                            mkdir -p ~/donation-app
+
+                            # copy docker-compose.yml
+                            cat > ~/donation-app/docker-compose.yml << "EOD"
+'"$(cat docker-compose.yml)"'
+EOD
+
+                            cd ~/donation-app
+
+                            # Stop old containers and remove if they exist
+                            docker-compose down --remove-orphans || true
+
+                            # Pull latest images
+                            docker-compose pull || true
+
+                            # Start containers
+                            docker-compose up -d || true
+
+                            # Wait a few seconds and check
+                            sleep 10
+                            docker ps
+                        '
                     '''
                 }
             }
         }
 
-        /* ---------------- HEALTH ---------------- */
         stage('Health Check') {
             steps {
                 sh '''
+                    echo "Checking application health..."
                     sleep 10
-                    curl -f http://$EC2_HOST:3000
-                    curl -f http://$EC2_HOST:5000 || true
+                    curl -f http://$EC2_HOST:3000 && echo "✅ Frontend is up!"
+                    curl -f http://$EC2_HOST:5000/api/health && echo "✅ Backend is up!"
                 '''
             }
         }
@@ -177,16 +139,16 @@ EOF
     post {
         success {
             echo """
-========================================
-✅ DEPLOYMENT SUCCESSFUL!
-========================================
-Frontend: http://${EC2_HOST}:3000
-Backend:  http://${EC2_HOST}:5000
-========================================
-"""
+            ========================================
+            ✅ DEPLOYMENT SUCCESSFUL!
+            ========================================
+            Frontend: http://${EC2_HOST}:3000
+            Backend:  http://${EC2_HOST}:5000
+            ========================================
+            """
         }
         failure {
-            echo '❌ Deployment failed — check logs above'
+            echo '❌ Deployment failed! Check the logs above.'
         }
     }
 }
