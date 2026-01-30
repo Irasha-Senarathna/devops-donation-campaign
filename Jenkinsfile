@@ -19,10 +19,17 @@ pipeline {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
+                    echo "🔑 Testing SSH connectivity..."
+                    ssh -o ConnectTimeout=15 \
+                        -o StrictHostKeyChecking=no \
+                        ubuntu@$EC2_HOST "echo SSH_OK"
+
+                    echo "🚀 Connected. Deploying..."
+
                     ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST << 'EOF'
                       set -e
 
-                      echo "🚀 Preparing server..."
+                      echo "📁 Preparing app directory"
                       mkdir -p ~/donation-app
                       cd ~/donation-app
 
@@ -32,7 +39,7 @@ pipeline {
                         git pull origin main
                       fi
 
-                      echo "🧱 Writing docker-compose.yml..."
+                      echo "🧱 Writing docker-compose.yml"
                       cat > docker-compose.yml << 'EOC'
 version: '3.9'
 services:
@@ -67,7 +74,7 @@ volumes:
   mongo-data:
 EOC
 
-                      echo "🐳 Deploying containers..."
+                      echo "🐳 Deploying containers"
                       if command -v docker-compose >/dev/null 2>&1; then
                         docker-compose down || true
                         docker-compose build
@@ -89,7 +96,7 @@ EOF
             steps {
                 sh '''
                   echo "⏳ Waiting for services..."
-                  sleep 25
+                  sleep 30
 
                   curl -f http://$EC2_HOST:5000/api/health
                   curl -f http://$EC2_HOST:3000
@@ -107,7 +114,7 @@ Backend:  http://$EC2_HOST:5000
 """
         }
         failure {
-            echo "❌ DEPLOYMENT FAILED — check logs"
+            echo "❌ DEPLOYMENT FAILED — SSH or server access issue"
         }
     }
 }
