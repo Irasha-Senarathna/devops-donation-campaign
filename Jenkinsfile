@@ -4,7 +4,8 @@ pipeline {
     environment {
         DOCKERHUB_USER = 'irashasenarathna'
         DOCKERHUB_PASSWORD = credentials('docker-hub-token')
-        EC2_HOST = credentials('ec2-host')   // should be your public IP of EC2
+        EC2_HOST = credentials('ec2-host')
+        DOCKER_BUILDKIT = '1'
     }
 
     stages {
@@ -20,12 +21,22 @@ pipeline {
             parallel {
                 stage('Build Frontend') {
                     steps {
-                        sh 'docker build -t $DOCKERHUB_USER/donation-frontend:latest ./frontend'
+                        retry(3) { // Retry 3 times in case of network timeout
+                            sh '''
+                                echo "Building frontend image..."
+                                DOCKER_BUILDKIT=1 docker build --pull -t $DOCKERHUB_USER/donation-frontend:latest ./frontend
+                            '''
+                        }
                     }
                 }
                 stage('Build Backend') {
                     steps {
-                        sh 'docker build -t $DOCKERHUB_USER/donation-backend:latest ./backend'
+                        retry(3) {
+                            sh '''
+                                echo "Building backend image..."
+                                DOCKER_BUILDKIT=1 docker build --pull -t $DOCKERHUB_USER/donation-backend:latest ./backend
+                            '''
+                        }
                     }
                 }
             }
@@ -45,7 +56,7 @@ pipeline {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                        # Create docker-compose.yml with updated images
+                        # generate docker-compose.yml locally
                         cat > docker-compose.yml <<EOF
 version: '3.8'
 
@@ -94,29 +105,22 @@ networks:
     driver: bridge
 EOF
 
-                        # SSH into EC2 and deploy
                         ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST '
                             set -x
+
                             mkdir -p ~/donation-app
 
-                            # copy docker-compose.yml
                             cat > ~/donation-app/docker-compose.yml << "EOD"
 '"$(cat docker-compose.yml)"'
 EOD
 
-                            cd ~/donation-app
+                            # Stop and remove old containers
+                            docker rm -f donation-backend donation-frontend mongodb || true
+                            docker-compose -f ~/donation-app/docker-compose.yml pull || true
+                            docker-compose -f ~/donation-app/docker-compose.yml down --remove-orphans || true
+                            docker-compose -f ~/donation-app/docker-compose.yml up -d || true
 
-                            # Stop old containers and remove if they exist
-                            docker-compose down --remove-orphans || true
-
-                            # Pull latest images
-                            docker-compose pull || true
-
-                            # Start containers
-                            docker-compose up -d || true
-
-                            # Wait a few seconds and check
-                            sleep 10
+                            sleep 15
                             docker ps
                         '
                     '''
