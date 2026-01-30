@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        EC2_HOST = '13.204.67.80'   // ✅ NEW INSTANCE IP
+        EC2_HOST = '13.204.67.80'
     }
 
     stages {
@@ -20,24 +20,20 @@ pipeline {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
                     echo "🔑 Testing SSH connectivity..."
-                    ssh -o ConnectTimeout=15 \
-                        -o StrictHostKeyChecking=no \
-                        ubuntu@$EC2_HOST "echo SSH_OK"
+                    ssh -o ConnectTimeout=15 -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "echo SSH_OK"
 
                     echo "🚀 Connected. Deploying..."
 
                     ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST << 'EOF'
                       set -e
 
-                      echo "📁 Preparing app directory"
+                      echo "📁 Resetting app directory"
+                      rm -rf ~/donation-app
                       mkdir -p ~/donation-app
                       cd ~/donation-app
 
-                      if [ ! -d .git ]; then
-                        git clone https://github.com/Irasha-Senarathna/devops-donation-campaign.git .
-                      else
-                        git pull origin main
-                      fi
+                      echo "📥 Cloning repository fresh"
+                      git clone https://github.com/Irasha-Senarathna/devops-donation-campaign.git .
 
                       echo "🧱 Writing docker-compose.yml"
                       cat > docker-compose.yml << 'EOC'
@@ -75,15 +71,9 @@ volumes:
 EOC
 
                       echo "🐳 Deploying containers"
-                      if command -v docker-compose >/dev/null 2>&1; then
-                        docker-compose down || true
-                        docker-compose build
-                        docker-compose up -d
-                      else
-                        docker compose down || true
-                        docker compose build
-                        docker compose up -d
-                      fi
+                      docker compose down || true
+                      docker compose build
+                      docker compose up -d
 
                       docker ps
 EOF
@@ -97,7 +87,6 @@ EOF
                 sh '''
                   echo "⏳ Waiting for services..."
                   sleep 30
-
                   curl -f http://$EC2_HOST:5000/api/health
                   curl -f http://$EC2_HOST:3000
                 '''
@@ -114,7 +103,7 @@ Backend:  http://$EC2_HOST:5000
 """
         }
         failure {
-            echo "❌ DEPLOYMENT FAILED — SSH or server access issue"
+            echo "❌ DEPLOYMENT FAILED — check logs above"
         }
     }
 }
