@@ -71,9 +71,21 @@ volumes:
 EOC
 
                       echo "🐳 Deploying containers"
-                      docker compose down || true
-                      docker compose build
-                      docker compose up -d
+
+                      if command -v docker-compose >/dev/null 2>&1; then
+                        echo "➡ Using docker-compose (v1)"
+                        docker-compose down || true
+                        docker-compose build
+                        docker-compose up -d
+                      elif docker compose version >/dev/null 2>&1; then
+                        echo "➡ Using docker compose (v2)"
+                        docker compose down || true
+                        docker compose build
+                        docker compose up -d
+                      else
+                        echo "❌ Docker Compose not installed"
+                        exit 1
+                      fi
 
                       docker ps
 EOF
