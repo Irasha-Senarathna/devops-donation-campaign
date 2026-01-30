@@ -8,8 +8,7 @@ pipeline {
     }
 
     stages {
-        // -----------------------------
-        stage('Checkout Code') {
+        stage('Checkout') {
             steps {
                 git branch: 'main', 
                     url: 'https://github.com/Irasha-Senarathna/devops-donation-campaign.git',
@@ -17,7 +16,6 @@ pipeline {
             }
         }
 
-        // -----------------------------
         stage('Build Docker Images') {
             parallel {
                 stage('Build Frontend') {
@@ -33,7 +31,6 @@ pipeline {
             }
         }
 
-        // -----------------------------
         stage('Push to Docker Hub') {
             steps {
                 sh '''
@@ -44,16 +41,22 @@ pipeline {
             }
         }
 
-        // -----------------------------
         stage('Deploy to EC2') {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                        # Create app directory if not exists
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "mkdir -p ~/donation-app"
+                        set -euxo pipefail
+                        # Login to remote and deploy (login to Docker Hub on remote too)
+                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST bash -lc "
+                            set -euxo pipefail
 
-                        # Create docker-compose.yml on EC2
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "cat > ~/donation-app/docker-compose.yml << 'EOF'
+                            # Ensure docker & docker-compose exist
+                            docker --version || (echo 'docker missing' && exit 1)
+                            docker-compose --version || (echo 'docker-compose missing' && exit 1)
+
+                            mkdir -p ~/donation-app
+
+                            cat > ~/donation-app/docker-compose.yml << 'EOF'
 version: '3.8'
 
 services:
@@ -99,25 +102,26 @@ volumes:
 networks:
   app-network:
     driver: bridge
-EOF"
+EOF
 
-                        # Remove existing containers if they exist
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "docker rm -f donation-backend donation-frontend mongodb || true"
+                            # Login to Docker Hub on remote so docker-compose pull can pull private images
+                            echo \"$DOCKERHUB_PASSWORD\" | docker login -u \"$DOCKERHUB_USER\" --password-stdin
 
-                        # Pull latest images and start application
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "cd ~/donation-app && docker-compose pull && docker-compose up -d"
+                            # Cleanup and start
+                            docker rm -f donation-backend donation-frontend mongodb || true
+                            cd ~/donation-app
+                            docker-compose pull
+                            docker-compose down --remove-orphans || true
+                            docker-compose up -d
 
-                        # Wait a few seconds for containers to start
-                        sleep 20
-
-                        # Verify running containers
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "docker ps"
+                            sleep 20
+                            docker ps
+                        "
                     '''
                 }
             }
         }
 
-        // -----------------------------
         stage('Health Check') {
             steps {
                 sh '''
