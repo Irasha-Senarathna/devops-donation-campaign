@@ -27,6 +27,13 @@ pipeline {
                     ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST << 'EOF'
                       set -e
 
+                      echo "🛑 Stopping containers using ports 5000 & 3000 (if any)"
+                      docker ps --format "{{.ID}} {{.Ports}}" | grep -E "0.0.0.0:5000|0.0.0.0:3000" | awk '{print $1}' | xargs -r docker stop
+                      docker ps -a --format "{{.ID}} {{.Ports}}" | grep -E "0.0.0.0:5000|0.0.0.0:3000" | awk '{print $1}' | xargs -r docker rm
+
+                      echo "🧹 Cleaning old docker resources"
+                      docker network prune -f || true
+
                       echo "📁 Resetting app directory"
                       rm -rf ~/donation-app
                       mkdir -p ~/donation-app
@@ -74,12 +81,12 @@ EOC
 
                       if command -v docker-compose >/dev/null 2>&1; then
                         echo "➡ Using docker-compose (v1)"
-                        docker-compose down || true
+                        docker-compose down --remove-orphans || true
                         docker-compose build
                         docker-compose up -d
                       elif docker compose version >/dev/null 2>&1; then
                         echo "➡ Using docker compose (v2)"
-                        docker compose down || true
+                        docker compose down --remove-orphans || true
                         docker compose build
                         docker compose up -d
                       else
@@ -87,6 +94,7 @@ EOC
                         exit 1
                       fi
 
+                      echo "📦 Running containers:"
                       docker ps
 EOF
                     '''
@@ -98,7 +106,7 @@ EOF
             steps {
                 sh '''
                   echo "⏳ Waiting for services..."
-                  sleep 30
+                  sleep 35
                   curl -f http://$EC2_HOST:5000/api/health
                   curl -f http://$EC2_HOST:3000
                 '''
@@ -115,7 +123,7 @@ Backend:  http://$EC2_HOST:5000
 """
         }
         failure {
-            echo "❌ DEPLOYMENT FAILED — check logs above"
+            echo "❌ DEPLOYMENT FAILED — see logs above"
         }
     }
 }
