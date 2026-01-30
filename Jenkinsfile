@@ -5,14 +5,13 @@ pipeline {
         DOCKERHUB_USER = 'irashasenarathna'
         DOCKERHUB_PASSWORD = credentials('docker-hub-token')
         EC2_HOST = credentials('ec2-host')
-        DOCKER_BUILDKIT = '1'
     }
 
     stages {
 
         stage('Checkout') {
             steps {
-                git branch: 'main', 
+                git branch: 'main',
                     url: 'https://github.com/Irasha-Senarathna/devops-donation-campaign.git',
                     credentialsId: 'github-pat'
             }
@@ -20,51 +19,27 @@ pipeline {
 
         stage('Docker Login') {
             steps {
-                script {
-                    retry(3) {
-                        sh '''
-                            echo $DOCKERHUB_PASSWORD | docker login -u $DOCKERHUB_USER --password-stdin
-                        '''
-                    }
-                }
+                sh '''
+                  echo "$DOCKERHUB_PASSWORD" | docker login -u "$DOCKERHUB_USER" --password-stdin
+                '''
             }
         }
 
-        stage('Build Docker Images') {
-            parallel {
-                stage('Build Frontend') {
-                    steps {
-                        retry(3) {
-                            sh '''
-                                echo "Building frontend image..."
-                                DOCKER_BUILDKIT=1 docker build --pull -t $DOCKERHUB_USER/donation-frontend:latest ./frontend
-                            '''
-                        }
-                    }
-                }
-                stage('Build Backend') {
-                    steps {
-                        retry(3) {
-                            sh '''
-                                echo "Building backend image..."
-                                DOCKER_BUILDKIT=1 docker build --pull -t $DOCKERHUB_USER/donation-backend:latest ./backend
-                            '''
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Push to Docker Hub') {
+        stage('Build Images') {
             steps {
-                script {
-                    retry(3) {
-                        sh '''
-                            docker push $DOCKERHUB_USER/donation-frontend:latest
-                            docker push $DOCKERHUB_USER/donation-backend:latest
-                        '''
-                    }
-                }
+                sh '''
+                  docker build -t $DOCKERHUB_USER/donation-backend:latest ./backend
+                  docker build -t $DOCKERHUB_USER/donation-frontend:latest ./frontend
+                '''
+            }
+        }
+
+        stage('Push Images') {
+            steps {
+                sh '''
+                  docker push $DOCKERHUB_USER/donation-backend:latest
+                  docker push $DOCKERHUB_USER/donation-frontend:latest
+                '''
             }
         }
 
@@ -72,65 +47,71 @@ pipeline {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST '
-                            set -e
-                            mkdir -p ~/donation-app
-                            cat > ~/donation-app/docker-compose.yml << "EOD"
-'"$(cat docker-compose.yml)"'
-EOD
+                    ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST << 'EOF'
+                      set -e
+                      mkdir -p ~/donation-app
+                      cd ~/donation-app
 
-                            echo "Removing old containers..."
-                            docker rm -f donation-backend donation-frontend mongodb || true
+                      cat > docker-compose.yml << 'EOC'
+version: '3.9'
+services:
+  mongo:
+    image: mongo:6.0
+    restart: unless-stopped
+    volumes:
+      - mongo-data:/data/db
+    ports:
+      - "27018:27017"
 
-                            echo "Pulling latest images..."
-                            docker-compose -f ~/donation-app/docker-compose.yml pull
+  backend:
+    image: irashasenarathna/donation-backend:latest
+    ports:
+      - "5000:5000"
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      MONGO_URI: mongodb://mongo:27017/donation_db
+      JWT_SECRET: change_this
+    depends_on:
+      - mongo
 
-                            echo "Stopping old containers..."
-                            docker-compose -f ~/donation-app/docker-compose.yml down --remove-orphans
+  frontend:
+    image: irashasenarathna/donation-frontend:latest
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
 
-                            echo "Starting new containers..."
-                            docker-compose -f ~/donation-app/docker-compose.yml up -d
+volumes:
+  mongo-data:
+EOC
 
-                            echo "Waiting 40s for containers to initialize..."
-                            sleep 40
-
-                            echo "Current container status:"
-                            docker ps
-                        '
+                      docker compose down || true
+                      docker compose pull
+                      docker compose up -d
+                      docker ps
+EOF
                     '''
                 }
             }
         }
 
-        stage('Health Check') {
+        stage('Smoke Test') {
             steps {
-                sshagent(['ec2-ssh-key']) {
-                    sh '''
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST '
-                            echo "Checking backend..."
-                            curl -f http://localhost:5000/api/health && echo "✅ Backend is up!" || (echo "❌ Backend not ready"; exit 1)
-                            echo "Checking frontend..."
-                            curl -f http://localhost:3000 && echo "✅ Frontend is up!" || (echo "❌ Frontend not ready"; exit 1)
-                        '
-                    '''
-                }
+                sh '''
+                  curl -f http://$EC2_HOST:5000/api/health
+                  curl -f http://$EC2_HOST:3000
+                '''
             }
         }
     }
 
     post {
         success {
-            echo """
-            ========================================
-            ✅ DEPLOYMENT SUCCESSFUL!
-            ========================================
-            Frontend: http://${EC2_HOST}:3000
-            Backend:  http://${EC2_HOST}:5000
-            ========================================
-            """
+            echo "✅ DEPLOYMENT SUCCESSFUL"
         }
         failure {
-            echo '❌ Deployment failed! Check the logs above.'
+            echo "❌ DEPLOYMENT FAILED"
         }
     }
 }
