@@ -47,7 +47,7 @@ pipeline {
                     sh '''
                         set -euxo pipefail
 
-                        # create a local docker-compose with variables expanded
+                        # create local docker-compose with variables expanded
                         cat > docker-compose.yml <<EOF
 version: '3.8'
 
@@ -96,32 +96,43 @@ networks:
     driver: bridge
 EOF
 
-                        # show generated file for debugging
                         sed -n '1,200p' docker-compose.yml
 
-                        # ensure remote dir
-                        ssh -vvv -o StrictHostKeyChecking=no ubuntu@$EC2_HOST 'mkdir -p ~/donation-app'
-
-                        # copy the compose file to remote (uses ssh-agent key)
+                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST 'mkdir -p ~/donation-app'
                         scp -o StrictHostKeyChecking=no docker-compose.yml ubuntu@$EC2_HOST:~/donation-app/docker-compose.yml
 
-                        # run remote deployment with verbose ssh to capture fail reason
-                        ssh -vvv -o StrictHostKeyChecking=no ubuntu@$EC2_HOST bash -lc "
-                            set -euxo pipefail
+                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST bash -lc "
+                          set -euxo pipefail
 
-                            docker --version || (echo 'docker missing' && exit 2)
-                            docker-compose --version || (echo 'docker-compose missing' && exit 2)
+                          if ! command -v docker >/dev/null; then
+                            echo 'docker missing — installing'
+                            sudo apt-get update -y
+                            sudo apt-get install -y ca-certificates curl gnupg lsb-release
+                            curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+                            echo \"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable\" | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
+                            sudo apt-get update -y
+                            sudo apt-get install -y docker-ce docker-ce-cli containerd.io
+                            sudo usermod -aG docker \$USER || true
+                          fi
 
-                            # login to Docker Hub on remote
-                            echo '$DOCKERHUB_PASSWORD' | docker login -u '$DOCKERHUB_USER' --password-stdin
+                          if ! command -v docker-compose >/dev/null; then
+                            echo 'docker-compose missing — installing'
+                            sudo curl -L \"https://github.com/docker/compose/releases/download/v2.24.0/docker-compose-$(uname -s)-$(uname -m)\" -o /usr/local/bin/docker-compose
+                            sudo chmod +x /usr/local/bin/docker-compose
+                          fi
 
-                            cd ~/donation-app
-                            docker-compose pull
-                            docker-compose down --remove-orphans || true
-                            docker-compose up -d
+                          docker --version
+                          docker-compose --version
 
-                            sleep 10
-                            docker ps
+                          echo '$DOCKERHUB_PASSWORD' | docker login -u '$DOCKERHUB_USER' --password-stdin
+
+                          cd ~/donation-app
+                          docker-compose pull
+                          docker-compose down --remove-orphans || true
+                          docker-compose up -d
+
+                          sleep 10
+                          docker ps
                         "
                     '''
                 }
