@@ -8,8 +8,8 @@ pipeline {
     }
 
     stages {
-        // Stage 1: Checkout Code
-        stage('Checkout') {
+        // -----------------------------
+        stage('Checkout Code') {
             steps {
                 git branch: 'main', 
                     url: 'https://github.com/Irasha-Senarathna/devops-donation-campaign.git',
@@ -17,7 +17,7 @@ pipeline {
             }
         }
 
-        // Stage 2: Build Docker Images
+        // -----------------------------
         stage('Build Docker Images') {
             parallel {
                 stage('Build Frontend') {
@@ -33,7 +33,7 @@ pipeline {
             }
         }
 
-        // Stage 3: Push Docker Images to Docker Hub
+        // -----------------------------
         stage('Push to Docker Hub') {
             steps {
                 sh '''
@@ -44,12 +44,12 @@ pipeline {
             }
         }
 
-        // Stage 4: Deploy to EC2
+        // -----------------------------
         stage('Deploy to EC2') {
             steps {
                 sshagent(['ec2-ssh-key']) {
                     sh '''
-                        # Create app directory on EC2
+                        # Create app directory if not exists
                         ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "mkdir -p ~/donation-app"
 
                         # Create docker-compose.yml on EC2
@@ -101,23 +101,23 @@ networks:
     driver: bridge
 EOF"
 
-                        # Deploy containers safely
-                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "
-                            cd ~/donation-app &&
-                            docker-compose pull &&
-                            docker-compose down --remove-orphans &&
-                            docker-compose up -d
-                        "
+                        # Remove existing containers if they exist
+                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "docker rm -f donation-backend donation-frontend mongodb || true"
 
-                        # Wait and verify
-                        sleep 30
+                        # Pull latest images and start application
+                        ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "cd ~/donation-app && docker-compose pull && docker-compose up -d"
+
+                        # Wait a few seconds for containers to start
+                        sleep 20
+
+                        # Verify running containers
                         ssh -o StrictHostKeyChecking=no ubuntu@$EC2_HOST "docker ps"
                     '''
                 }
             }
         }
 
-        // Stage 5: Health Check
+        // -----------------------------
         stage('Health Check') {
             steps {
                 sh '''
