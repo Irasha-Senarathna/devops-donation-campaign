@@ -196,7 +196,7 @@ export default function Signup() {
                 marginBottom: '0.5rem',
                 letterSpacing: '0.5px'
               }}>
-                FULL NAME PLEASE
+                FULL NAME 
               </label>
               <input
                 name="name"
