@@ -165,7 +165,7 @@ export default function Signup() {
             marginBottom: '0.5rem',
             letterSpacing: '-0.02em'
           }}>
-            Join Us Today wi
+            Join Us Today with us
           </h1>
           <p style={{
             color: '#94a3b8',

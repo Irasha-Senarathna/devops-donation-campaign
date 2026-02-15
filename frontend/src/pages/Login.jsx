@@ -148,7 +148,7 @@ export default function Login() {
             marginBottom: '0.5rem',
             letterSpacing: '-0.02em'
           }}>
-            Welcome Back
+            Irasha Senarathna
           </h1>
           <p style={{
             color: '#94a3b8',
