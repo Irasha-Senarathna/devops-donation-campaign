@@ -165,7 +165,7 @@ export default function Signup() {
             marginBottom: '0.5rem',
             letterSpacing: '-0.02em'
           }}>
-            Join Us Today
+            Join Us Today wi
           </h1>
           <p style={{
             color: '#94a3b8',
@@ -196,7 +196,7 @@ export default function Signup() {
                 marginBottom: '0.5rem',
                 letterSpacing: '0.5px'
               }}>
-                FULL NAME 
+                FULL NAME
               </label>
               <input
                 name="name"
