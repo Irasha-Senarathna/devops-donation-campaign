@@ -119,6 +119,7 @@ export default function About() {
 
           <h1 style={{
             fontSize: '3.5rem',
+            
             fontWeight: '800',
             background: 'linear-gradient(135deg, #f97316 0%, #fb923c 50%, #fdba74 100%)',
             WebkitBackgroundClip: 'text',

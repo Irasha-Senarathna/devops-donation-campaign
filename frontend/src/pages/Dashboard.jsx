@@ -141,7 +141,7 @@ export default function Dashboard() {
             Welcome back, {user?.name || 'Guest'}
           </h1>
           <p style={{ color: '#94a3b8', fontSize: '1.1rem', fontWeight: '300' }}>
-            Manage your campaigns and make a difference
+            Manage your books and make a difference
           </p>
         </div>
 
@@ -172,11 +172,11 @@ export default function Dashboard() {
               borderRadius: '50%',
               animation: 'pulse 2s ease-in-out infinite'
             }} />
-            Create New Campaign
+            Add a Book
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
             <input
-              placeholder="Campaign Title"
+              placeholder="Book Title"
               value={form.title}
               onChange={e => setForm({ ...form, title: e.target.value })}
               required
@@ -275,7 +275,7 @@ export default function Dashboard() {
                 e.target.style.boxShadow = '0 4px 20px rgba(249, 115, 22, 0.4)';
               }}
             >
-              Create Campaign
+              Add Book
             </button>
           </div>
         </div>

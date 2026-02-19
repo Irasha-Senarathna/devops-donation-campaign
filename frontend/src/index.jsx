@@ -133,7 +133,7 @@ function App() {
                 WebkitBackgroundClip: 'text',
                 WebkitTextFillColor: 'transparent'
               }}>
-                DonateNow
+                EduBook
               </span>
             </Link>
 
@@ -372,11 +372,11 @@ function App() {
                         WebkitBackgroundClip: 'text',
                         WebkitTextFillColor: 'transparent'
                       }}>
-                        Welcome to
+                        Modern Student
                       </span>
                       <br />
                       <span style={{ color: '#e2e8f0' }}>
-                        Donation App
+                        Record Management
                       </span>
                     </h1>
 
@@ -447,7 +447,7 @@ function App() {
                     animation: 'fadeIn 1s ease-out 0.3s both'
                   }}>
                     {[
-                      { icon: '❤️', title: 'Easy Donations', desc: 'Quick and secure donation process' },
+                      { icon: '❤️', title: 'Add Book', desc: 'Quick and secure donation process' },
                       { icon: '📊', title: 'Track Impact', desc: 'See how your contributions help' },
                       { icon: '🔒', title: 'Secure', desc: 'Your data and payments are protected' },
                       { icon: '🌍', title: 'Global Reach', desc: 'Support causes around the world' }
